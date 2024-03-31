@@ -1,0 +1,2206 @@
+---
+title: "1 Codigo Reproducible: Preparación y Limpieza de Datos - Recalibración de modelo KFRE para predecir falla renal en asegurados de EsSalud"
+author: "Percy Soto Becerra"
+format: 
+  html: 
+   toc: true
+   number-sections: true
+   df-print: paged
+   page-layout: full
+   embed-resources: true
+---
+
+## Cargar paquetes
+
+```{r}
+if (!require("pacman")) {
+  install.packages("pacman")
+}
+
+pacman::p_load(
+  here,
+  tidyverse,
+  rio,
+  lubridate, 
+  janitor, 
+  naniar, 
+  summarytools, 
+  labelled
+)
+
+library(survcomp)
+```
+
+## Importar datos
+
+### Datos de hemodiálisis
+
+#### Datos de CNSR:
+
+Vamos a transformar el nombre de las variables: 
+
+```{r}
+data_dial_sig <- import(here("Data", "Raw", "25082023_bd_dial_sig.csv"))
+head(data_dial_sig, 10)
+```
+
+```{r}
+data_dial_sig2 <- data_dial_sig |> 
+  rename(auto_cor = AUTOGENERADO, 
+         dial_date = `FECHA DE 1ERA HEMODIALISIS`) |> 
+  mutate(auto_cor = str_trim(auto_cor), 
+         dial_date = dmy(dial_date)) |> 
+  select(auto_cor, dial_date)
+
+head(data_dial_sig2)
+```
+
+
+```{r}
+data_dial_sscc <- import(here("Data", "Raw", "25082023_bd_dial_sscc.csv"))
+head(data_dial_sscc, 10)
+```
+
+```{r}
+data_dial_sscc 
+```
+
+
+```{r}
+data_dial_sscc2 <- data_dial_sscc |> 
+  rename(auto_cor = AUTOGENERADO, 
+         dial_date = `FECHA 1ERA HEMODIALISIS`) |> 
+  mutate(auto_cor = str_trim(auto_cor), 
+         dial_date = dmy(dial_date)) |> 
+  select(auto_cor, dial_date)
+
+head(data_dial_sscc2)
+```
+
+Por ultimo, fusionamos ambos datos:
+
+```{r}
+data_dial_cnsr <- data_dial_sscc2 |> 
+  bind_rows(data_dial_sig2)
+
+head(data_dial_cnsr)
+```
+
+Asimismo, vamos a agregarle una columna donde figure la variable indicadora de dialisis:
+
+```{r}
+data_dial_cnsr <- data_dial_cnsr |> 
+  mutate(dial = case_when(is.na(dial_date) ~ 0, 
+                          !is.na(dial_date) ~ 1, 
+                          TRUE ~ 0), 
+         dial_date = case_when(!is.na(dial_date) ~ dial_date, 
+                               is.na(dial_date) ~ dmy("25-08-2023")))
+```
+
+```{r}
+data_dial_cnsr |> 
+  head(10)
+```
+
+Vamos a ordernar los datos por dialisis (descendente) y eliminar duplicados:
+
+```{r}
+data_dial_cnsr |> 
+  arrange(auto_cor, desc(dial)) |> 
+  get_dupes(auto_cor)
+```
+
+```{r}
+data_dial_cnsr <- data_dial_cnsr |> 
+  arrange(auto_cor, desc(dial)) |> 
+  distinct(auto_cor, .keep_all = TRUE)
+```
+
+```{r}
+data_dial_cnsr |> 
+  arrange(auto_cor, desc(dial)) |> 
+  get_dupes(auto_cor)
+```
+
+#### Datos basados en SGH:
+
+Vamos a usar como proxy los CIE-10 para detectar el acceso a hemodialisis: 
+- <https://doi.org/10.1093/ckj/sfx085> 
+- <https://icd.who.int/browse10/2019/en#/Z80-Z99>
+
+En base a la tabla de líneas arriba, vamos a detectar los siguientes CIE-10 como si fueran evidencia de dialisis: 
+- Z99.2 (Dependence on renal dialysis)
+- Z49.1 (Extracorporeal dialysis)
+- Z49.2 (Other dialysis - peritoneal dyalisis)
+- N18.5 (CKD Stage 5)
+- N18.6 (CKD con dialisis)
+- Z94.0 (Kidney transplant status)
+
+```{r}
+data_dial_sgh_emg <- import(here("Data", "Raw", "07092023_bd_dial_sgh_emerg.csv")) |> 
+  mutate(ESCDIAG = str_trim(ESCDIAG), 
+         ESDIAG2 = str_trim(ESDIAG2)) |> 
+  select(ESAUTASE, ESFECHA, ESCDIAG, ESDIAG2) |> 
+  rename(ESDIAG1 = ESCDIAG)
+```
+
+Transformaremos los datos a formato largo:
+
+```{r}
+data_dial_sgh_emg <- data_dial_sgh_emg |> 
+  pivot_longer(cols = c(ESDIAG1, ESDIAG2), 
+               names_to = "diag_num", 
+               values_to = "diag_cie")
+```
+
+```{r}
+head(data_dial_sgh_emg, 10)
+```
+
+Vamos a filtrar a los pacientes con los diagnosticos CIE-10 de interés:
+
+```{r}
+data_dial_sgh_emg2 <- data_dial_sgh_emg |> 
+  filter(diag_cie %in% c("Z99.2", "Z49.1", "Z49.2", "N18.5", "N18.6", "Z94.0"))
+
+head(data_dial_sgh_emg2, 10)
+```
+
+Por último armonizaremos los nombres de las variables para permitir la fusión de los datos:
+
+```{r}
+data_dial_sgh_emg2 <- data_dial_sgh_emg2 |> 
+  rename(auto_cor = ESAUTASE, 
+         dial_date = ESFECHA) |> 
+  mutate(auto_cor = str_trim(auto_cor), 
+         dial_date = dmy(dial_date)) |> 
+  select(auto_cor, dial_date, diag_cie)
+
+head(data_dial_sgh_emg2, 10)
+```
+
+Vamos a ordenar los datos de menor a mayor fecha (más antiguo a más reciente) por cada individuo (auto_cor): 
+
+```{r}
+data_dial_sgh_emg2 <- data_dial_sgh_emg2 |> 
+  arrange(auto_cor, dial_date) 
+
+head(data_dial_sgh_emg2, 10)
+```
+
+Ahora, vamos a  eliminar los duplicados de auto_cor para así quedarns con la fecha más temprana de inicio probable de diálisis:
+
+```{r}
+data_dial_sgh_emg2 <- data_dial_sgh_emg2 |> 
+  distinct(auto_cor, .keep_all = TRUE)
+
+head(data_dial_sgh_emg2, 10)
+```
+
+Ahora importaremos los datos de hospitalizados y haremos una armonización de los nombres de variable para permitir la fusión de los datos:
+
+```{r}
+data_dial_sgh_hosp <- import(here("Data", "Raw", "07092023_bd_dial_sgh_hosp.csv")) |> 
+  mutate(HOCDIAGI = str_trim(HOCDIAGI)) |> 
+  rename(diag_cie = HOCDIAGI, 
+         dial_date = HOFHOSP, 
+         auto_cor = HOCAUTO) |> 
+  mutate(auto_cor = str_trim(auto_cor), 
+         dial_date = dmy(dial_date)) |> 
+  select(auto_cor, dial_date, diag_cie)
+
+head(data_dial_sgh_hosp, 10)
+```
+
+Luego vamos a filtrar 
+
+```{r}
+data_dial_sgh_hosp2 <- data_dial_sgh_hosp |> 
+  filter(diag_cie %in% c("Z99.2", "Z49.1", "Z49.2", "N18.5", "N18.6", "Z94.0"))
+```
+
+Luego vamos a proceder a hacer una fusión por fila:
+
+```{r}
+data_dial_sgh <- data_dial_sgh_hosp2 |> 
+  bind_rows(data_dial_sgh_emg2)
+```
+
+```{r}
+data_dial_sgh |> 
+  head(10)
+```
+
+Asimismo, vamos a agregarle una columna donde figure la variable indicadora de dialisis:
+
+```{r}
+data_dial_sgh <- data_dial_sgh |> 
+  mutate(dial = case_when(is.na(dial_date) ~ 0, 
+                          !is.na(dial_date) ~ 1, 
+                          TRUE ~ 0), 
+         dial_date = case_when(!is.na(dial_date) ~ dial_date, 
+                               is.na(dial_date) ~ dmy("07-09-2023")))
+```
+
+```{r}
+data_dial_sgh |> 
+  head(10)
+```
+
+#### Fusion de datos CNSR + SGH
+
+```{r}
+data_dial <- data_dial_sgh |> 
+  bind_rows(data_dial_cnsr)
+
+head(data_dial, 10)
+dim(data_dial)
+```
+
+Por cada individuo (autogenerado), vamos ahora a ordenar de menor fecha a mayor fecha y quedarnos solo con el de menor fecha (primera fila) eliminado los demás duplicados de auto_cor:
+
+```{r}
+data_dial2 <- data_dial |> 
+  arrange(auto_cor, desc(dial), dial_date) |> 
+  distinct(auto_cor, .keep_all = TRUE)
+
+head(data_dial2)
+```
+
+### Datos de fallecimiento
+
+```{r}
+data_fallec <- import(here("Data", "Raw", "02082023_bd_fallec.csv")) |> 
+  clean_names()
+
+data_fallec |> 
+  head(10)
+```
+
+```{r}
+data_fallec <- data_fallec |> 
+  rename(auto_cor = autogenerado, 
+         death_date = dgaffal, 
+         dni = dgandid) |> 
+  mutate(auto_cor = str_trim(auto_cor), 
+         death_date = dmy(death_date), 
+         fuente = "data_fallec") |> 
+  select(auto_cor, death_date, dni, fuente)
+
+data_fallec |> 
+  head(10)
+```
+
+
+### Datos del hospital rebagliati
+
+#### Importar y procesar datos
+
+```{r}
+data_pred_reba <- import(here("Data", "Raw", "bd_predictores_reba_lima.csv")) |> 
+  clean_names() 
+```
+
+
+```{r}
+data_pred_reba |> 
+  head(10)
+```
+
+```{r}
+data_pred_reba2 <- data_pred_reba |> 
+  rename(sex = sexo, 
+         age = edad, 
+         auto_cor = autogenerado, 
+         assess_date = fecha_erc, 
+         crea = creatinina, 
+         urine_album = albuminuria, 
+         urine_crea = creatinuria, 
+         acr = rac, 
+         cas_hosp = cas) |> 
+  mutate(sex = factor(sex, 
+                      levels = c("0", "1"), 
+                      labels = c("Femenino", "Masculino")), 
+         across(c(age, crea, urine_album, urine_crea, acr), ~ as.numeric(str_replace(., ",", "."))), 
+         hta = as.numeric(hta), 
+         dm = as.numeric(dm), 
+         assess_date = dmy(assess_date),
+         auto_cor = str_trim(auto_cor), 
+         cas = "REBAGLIATI", 
+         eGFR_ckdepi = case_when(
+           crea <= 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-0.329)) * (0.993 ^ (age)) * 1, 
+           crea > 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-1.209)) * (0.993 ^ (age)) * 1, 
+           crea <= 0.9 & sex == "Masculino" ~ 141 * ((crea / 0.9) ^ (-0.411)) * (0.993 ^ (age)) * 1, 
+           crea > 0.9 & sex == "Masculino" ~ 141 * ((crea / 0.9) ^ (-1.209)) * (0.993 ^ (age)) * 1, 
+           TRUE ~ as.numeric(NA)
+         )) |> 
+  select(auto_cor, sex, age, hta, dm, cas, cas_hosp, assess_date, crea, eGFR_ckdepi, urine_album, urine_crea, acr)
+```
+
+#### Inspeccionar datos perdidos
+
+```{r}
+skimr::skim(data_pred_reba2)
+```
+
+```{r}
+gg_miss_upset(data_pred_reba2)
+```
+
+```{r}
+gg_miss_upset(data_pred_reba2 |> select(eGFR_ckdepi, acr))
+```
+
+```{r}
+data_pred_reba3 <- data_pred_reba2 |> 
+  drop_na(eGFR_ckdepi, acr)
+```
+
+#### Fusionar datos de dialisis y mortalidad con datos de Rebagliati
+
+```{r}
+data_pred_reba3 <- data_pred_reba2 |> 
+  left_join(data_fallec, by = "auto_cor") |> 
+  left_join(data_dial2, by = "auto_cor")
+
+head(data_pred_reba3, 10)
+```
+
+```{r}
+data_pred_reba3 <- data_pred_reba3  |> 
+  mutate(death = case_when(!is.na(death_date) ~ 1, 
+                           is.na(death_date) ~ 0, 
+                           TRUE ~ 0), 
+         death_date = case_when(is.na(death_date ) ~ dmy("02-08-2023"), 
+                                TRUE ~ death_date), 
+         deathc = case_when(
+           death == 0 | is.na(death) ~ 0, 
+           death == 1 & death_date <= as.Date("2022-12-31") ~ 1, 
+           death == 1 & death_date > as.Date("2022-12-31") ~ 0, 
+           TRUE ~ as.numeric(NA)
+         ),
+         ddeathc = case_when(
+           death_date <= as.Date("2022-12-31") ~ death_date, 
+           death_date > as.Date("2022-12-31") | is.na(death_date) ~ as.Date("2022-12-31"),
+           TRUE ~ as.Date(NA)
+         ), 
+         dial = case_when(!is.na(dial) ~ dial, 
+                          is.na(dial) ~ 0, 
+                          TRUE ~ as.numeric(NA)), 
+         dial_date = case_when(!is.na(dial_date) ~ dial_date,
+                               is.na(dial_date) ~ dmy("07-09-2023")))
+```
+
+```{r}
+data_pred_reba3  |> 
+  head(10)
+```
+
+```{r}
+data_pred_reba4 <- data_pred_reba3 |> 
+  mutate(
+    male = if_else(sex == "Masculino", 1, 0), 
+    risk2y = 1 - 0.9832 ^ exp(-0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137)), 
+    risk5y = 1 - 0.9365 ^ exp(-0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137)), 
+    pi2y = -0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137), 
+    pi5y = -0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137), 
+    dial_time = as.duration(assess_date %--% dial_date) / ddays(1), 
+    death_time = as.duration(assess_date %--% death_date) / ddays(1), 
+    dialc = case_when(
+      dial == 0 | is.na(dial) ~ 0, 
+      dial == 1 & dial_date <= as.Date("2022-12-31") ~ 1, 
+      dial == 1 & dial_date > as.Date("2022-12-31") ~ 0,
+      TRUE ~ as.numeric(NA)
+    ), 
+    ddialc = case_when(
+      dial_date <= as.Date("2022-12-31") ~ dial_date, 
+      dial_date > as.Date("2022-12-31") ~ as.Date("2022-12-31"),
+      is.na(dial_date) & deathc == 1 ~ ddeathc, 
+      is.na(dial_date) & deathc == 0 ~ as.Date("2022-12-31"), 
+      TRUE ~ as.Date(NA)
+    ), 
+    tdeathc = as.duration(assess_date %--% ddeathc) / dyears(1), 
+    tdialc = as.duration(assess_date %--% ddialc) / dyears(1), 
+    status_num = case_when(
+      dialc == 0 & deathc == 0 ~ 0, 
+      dialc == 1 & deathc == 0 ~ 1, #< Evento de interes: dialisis
+      dialc == 0 & deathc == 1 & death_time >= 0~ 2, #< Evento en competencia (muerte antes de dialisis)
+      dialc == 1 & deathc == 1 & (tdialc <= tdeathc) ~ 1, 
+      TRUE ~ as.numeric(NA)
+    ), 
+    status_num2 = factor(status_num, levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")), 
+    time = case_when(
+      status_num == 0 ~ tdialc, 
+      status_num == 1 ~ tdialc, 
+      status_num == 2 ~ tdeathc, 
+      TRUE ~ as.numeric(NA)
+    ), 
+    status_num = as.integer(status_num), 
+    grf_cat = case_when(
+      eGFR_ckdepi > 90 ~ "G1", 
+      eGFR_ckdepi >= 60 & eGFR_ckdepi <= 90 ~ "G2", 
+      eGFR_ckdepi >= 45 & eGFR_ckdepi < 60 ~ "G3a", 
+      eGFR_ckdepi >= 30 & eGFR_ckdepi < 45 ~ "G3b", 
+      eGFR_ckdepi >= 15 & eGFR_ckdepi < 30 ~ "G4", 
+      eGFR_ckdepi < 15 ~ "G5", 
+      TRUE ~ as.character(NA)
+    ), 
+    acr2 = urine_album / urine_crea, 
+    acr_cat = case_when(
+      acr < 30 ~ "A1", 
+      acr >= 30 & acr <= 300 ~ "A2", 
+      acr > 300 ~ "A3",
+      TRUE ~ as.character(NA)
+    ), 
+    ckd_class = case_when(
+      grf_cat %in% c("G1", "G2") & acr_cat == "A1" ~ "Low risk", 
+      (grf_cat %in% c("G3a") & acr_cat == "A1") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A2") ~ "Moderately increased risk", 
+      (grf_cat %in% c("G3b") & acr_cat == "A1") | 
+        (grf_cat == "G3a" & acr_cat == "A2") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A3") ~ "High risk", 
+      (grf_cat %in% c("G4", "G5") & acr_cat == "A1") | 
+        (grf_cat %in% c("G3b", "G4", "G5") & acr_cat == "A2") | 
+        (grf_cat %in% c("G3a", "G3b", "G4", "G5") & acr_cat == "A3") ~ "Very high risk"
+    ), 
+    grf_cat = factor(grf_cat, levels = c("G1", "G2", "G3a", "G3b", "G4", "G5")), 
+    acr_cat = factor(acr_cat, levels = c("A1", "A2", "A3")), 
+    ckd_stage = case_when(
+      grf_cat %in% c("G3a", "G3b", "G4") ~ "Stages 3-4", 
+      grf_cat %in% c("G1", "G2", "G5") ~ "Stages 1-2 y 5"
+    ), 
+    ckd_stage = factor(ckd_stage, levels = c("Stages 1-2 y 5", "Stages 3-4")), 
+    ckd_stage2 = case_when(
+      grf_cat %in% c("G3b", "G4") ~ "Stages 3b-4", 
+      grf_cat %in% c("G3a", "G5", "G1", "G2") ~ "Stages 1-3 y 5"
+    ), 
+    ckd_stage2 = factor(ckd_stage2, levels = c("Stages 1-3 y 5", "Stages 3b-4")), 
+    ckd_class = factor(ckd_class, 
+                       levels = c("Low risk", 
+                                  "Moderately increased risk", 
+                                  "High risk", 
+                                  "Very high risk")), 
+    ckd_class2 = case_when(
+      ckd_class %in% c("Low risk", "Moderately increased risk", 
+                       "High risk") ~ "Moderately/High risk", 
+      ckd_class == "Very high risk" ~ "Very high risk", 
+      TRUE ~ as.character(NA)
+    ), 
+    ckd_class2 = factor(ckd_class2, 
+                        levels = c("Moderately/High risk", "Very high risk")), 
+    across(where(is.factor), ~droplevels(.)), 
+    total = 1, 
+    # Censoring to 5 years----
+    eventd = case_when(
+      status_num2 == "Alive w/o Kidney Failure" ~ 0, 
+      status_num2 == "Kidney Failure" ~ 1, 
+      status_num2 == "Death w/o Kidney Failure" ~ 2, 
+      TRUE ~ as.numeric(NA)
+    ), 
+    event = case_when(
+      status_num2 %in% c("Alive w/o Kidney Failure", "Death w/o Kidney Failure") ~ 0, 
+      status_num2 %in% c("Kidney Failure") ~ 1, 
+      TRUE ~ as.numeric(NA)
+    ),
+    time_death5y = censor.time(time, deathc, time.cens = 5)$surv.time.cens, 
+    death5y = censor.time(time, deathc, time.cens = 5)$surv.event.cens, 
+    time_death2y = censor.time(time, deathc, time.cens = 2)$surv.time.cens, 
+    death2y = censor.time(time, deathc, time.cens = 2)$surv.event.cens, 
+    time5y = censor.time(time, event, time.cens = 5)$surv.time.cens, 
+    event5y = censor.time(time, event, time.cens = 5)$surv.event.cens, 
+    eventd5y = censor.time(time, eventd, time.cens = 5)$surv.event.cens, 
+    eventd5ylab = case_when(
+      eventd5y == 0 ~ "Alive w/o Kidney Failure", 
+      eventd5y == 1 ~ "Kidney Failure", 
+      eventd5y == 2 ~ "Death w/o Kidney Failure", 
+      TRUE ~ as.character(NA)
+    ), 
+    time2y = censor.time(time, event, time.cens = 2)$surv.time.cens, 
+    event2y = censor.time(time, event, time.cens = 2)$surv.event.cens, 
+    eventd2y = censor.time(time, eventd, time.cens = 2)$surv.event.cens, 
+    eventd2ylab = case_when(
+      eventd2y == 0 ~ "Alive w/o Kidney Failure", 
+      eventd2y == 1 ~ "Kidney Failure", 
+      eventd2y == 2 ~ "Death w/o Kidney Failure", 
+      TRUE ~ as.character(NA)
+    )
+  ) |> 
+  set_variable_labels(
+    cas = "Centro de atención de salud", 
+    sex = "Sexo", 
+    male = "Sexo, masculino", 
+    age = "Edad (años)", 
+    assess_date = "Fecha de evaluación", 
+    crea = "Creatinina sérica (mg/dL)", 
+    eGFR_ckdepi = "TFG usando CKD-EPI, ml/min/1.73m2", 
+    acr = "Relación albúmina-creatinina, mg/g", 
+    urine_album = "Albúmina en orina (mg/ml)", 
+    urine_crea = "Creatinina en orina (mg/dl)", 
+    death_date = "Fecha de defunción", 
+    dial_date = "Fecha de hemodiálisis", 
+    hta = "Hipertensión", 
+    dm = "Diabetes Mellitus", 
+    risk2y = "Riesgo pronosticado de fallo renal a 2 años", 
+    risk5y = "Riesgo pronosticado de fallo renal a 5 años", 
+    pi2y = "Índice pronóstico de fallo renal a 2 años", 
+    pi5y = "Índice pronóstico de fallo renal a 5 años",     
+    grf_cat = "Categorías de TFG", 
+    acr_cat = "Categorías de albuminuria persistente", 
+    ckd_class = "Clasificación CKD KDIGO", 
+    ckd_class2 = "Clasificación CKD KDIGO",
+    ckd_stage = "Etapas de CKD", 
+    ckd_stage2 = "Etapas de CKD", 
+    status_num = "Resultado", 
+    status_num2 = "Resultado", 
+    eventd5ylab = "Resultado a 5 años", 
+    eventd2ylab = "Resultado a 2 años", 
+    eventd5y = "Resultado a 5 años", 
+    deathc = "Defunción",
+    death5y = "Defunción a 5 años", 
+    death2y = "Defunción a 2 años",
+    time_death5y = "Tiempo hasta muerte a 5 años", 
+    dialc = "Fallo renal", 
+    total = "Total", 
+    grf_cat = "Categorias de GFR", 
+    ckd_class = "Clasificación de CKD KDIGO") 
+```
+
+
+```{r}
+export(data_pred_reba4, here("Data", "Tidy", "data_reba.rds"))
+```
+
+### Datos del hospital kaelin
+
+#### Importar y procesar datos
+
+```{r}
+data_pred_kaelin <- import(here("Data", "Raw", "bd_predictores_kaelin_lima.xlsx")) |> 
+  clean_names() 
+```
+
+
+```{r}
+data_pred_kaelin |> 
+  head(10)
+```
+
+#### Limpiar variables
+
+```{r}
+data_pred_kaelin2 <- data_pred_kaelin |> 
+  rename(sex = sexo, 
+         age = edad, 
+         auto_cor = autogenerado, 
+         assess_date = fecha, 
+         crea = creatinina, 
+         urine_album = albuminuria, 
+         urine_crea = crea_orina, 
+         acr = rac) |> 
+  mutate(sex = factor(sex, 
+                      levels = c("F", "M"), 
+                      labels = c("Femenino", "Masculino")), 
+         hta = as.numeric(hta), 
+         dm = as.numeric(dm), 
+         assess_date = as.Date(assess_date),
+         auto_cor = str_trim(auto_cor), 
+         cas = "KAELIN", 
+         eGFR_ckdepi = case_when(
+           crea <= 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-0.329)) * (0.993 ^ (age)) * 1, 
+           crea > 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-1.209)) * (0.993 ^ (age)) * 1, 
+           crea <= 0.9 & sex == "Masculino" ~ 141 * ((crea / 0.9) ^ (-0.411)) * (0.993 ^ (age)) * 1, 
+           crea > 0.9 & sex == "Masculino" ~ 141 * ((crea / 0.9) ^ (-1.209)) * (0.993 ^ (age)) * 1, 
+           TRUE ~ as.numeric(NA)
+         ), 
+         cas_hosp = "Hosp. Kaelin", 
+         dni = dni_completo,
+         dial_date = as.Date(fecha_inicio_hd)) |> 
+  select(auto_cor, dni, sex, age, hta, dm, cas, cas_hosp, assess_date, crea, eGFR_ckdepi, urine_album, urine_crea, acr, dial_date)
+```
+
+#### Fusionar datos de muerte de sinadef
+
+```{r}
+data_fallec_sinadef <- import(here("Data", "Raw", "sinadef2017_2023.csv")) |> 
+  clean_names() |> 
+  select(tipo_doc, documento, fallecido, fech_fallecimiento) |> 
+  mutate(fuente = "data_fallec_sinadef") |> 
+  filter(tipo_doc == "DNI/LE")
+
+head(data_fallec_sinadef, 10)
+```
+
+
+```{r}
+data_pred_kaelin3 <- data_pred_kaelin2 |> 
+  left_join(data_fallec_sinadef, by = c("dni" = "documento"))
+```
+
+```{r}
+data_pred_kaelin3 |> 
+  count(fuente)
+```
+
+```{r}
+data_pred_kaelin3 |> 
+  count(fallecido)
+```
+
+
+#### Inspeccionar datos perdidos
+
+
+```{r}
+gg_miss_upset(data_pred_kaelin3)
+```
+
+
+#### Fusionar datos de dialisis y mortalidad con datos de Rebagliati
+
+```{r}
+data_pred_kaelin3 <- data_pred_kaelin3  |> 
+  mutate(death_date = as.Date(fech_fallecimiento)) |> 
+  mutate(death = case_when(!is.na(death_date) ~ 1, 
+                           is.na(death_date) ~ 0, 
+                           TRUE ~ 0), 
+         death_date = case_when(is.na(death_date ) ~ dmy("04-05-2023"), 
+                                TRUE ~ death_date), 
+         deathc = case_when(
+           death == 0 | is.na(death) ~ 0, 
+           death == 1 & death_date <= as.Date("2022-12-31") ~ 1, 
+           death == 1 & death_date > as.Date("2022-12-31") ~ 0, 
+           TRUE ~ as.numeric(NA)
+         ),
+         ddeathc = case_when(
+           death_date <= as.Date("2022-12-31") ~ death_date, 
+           death_date > as.Date("2022-12-31") | is.na(death_date) ~ as.Date("2022-12-31"),
+           TRUE ~ as.Date(NA)
+         ), 
+         dial = case_when(!is.na(dial_date) ~ 1, 
+                          is.na(dial_date) ~ 0, 
+                          TRUE ~ as.numeric(NA)), 
+         dial_date = case_when(!is.na(dial_date) ~ dial_date,
+                               is.na(dial_date) ~ dmy("07-09-2023")))
+```
+
+```{r}
+data_pred_kaelin3  |> 
+  head(10)
+```
+
+```{r}
+data_pred_kaelin4 <- data_pred_kaelin3 |> 
+  mutate(
+    male = if_else(sex == "Masculino", 1, 0), 
+    risk2y = 1 - 0.9832 ^ exp(-0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137)), 
+    risk5y = 1 - 0.9365 ^ exp(-0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137)), 
+    pi2y = -0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137), 
+    pi5y = -0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137), 
+    dial_time = as.duration(assess_date %--% dial_date) / ddays(1), 
+    death_time = as.duration(assess_date %--% death_date) / ddays(1), 
+    dialc = case_when(
+      dial == 0 | is.na(dial) ~ 0, 
+      dial == 1 & dial_date <= as.Date("2022-12-31") ~ 1, 
+      dial == 1 & dial_date > as.Date("2022-12-31") ~ 0,
+      TRUE ~ as.numeric(NA)
+    ), 
+    ddialc = case_when(
+      dial_date <= as.Date("2022-12-31") ~ dial_date, 
+      dial_date > as.Date("2022-12-31") ~ as.Date("2022-12-31"),
+      is.na(dial_date) & deathc == 1 ~ ddeathc, 
+      is.na(dial_date) & deathc == 0 ~ as.Date("2022-12-31"), 
+      TRUE ~ as.Date(NA)
+    ), 
+    tdeathc = as.duration(assess_date %--% ddeathc) / dyears(1), 
+    tdialc = as.duration(assess_date %--% ddialc) / dyears(1), 
+    status_num = case_when(
+      dialc == 0 & deathc == 0 ~ 0, 
+      dialc == 1 & deathc == 0 ~ 1, #< Evento de interes: dialisis
+      dialc == 0 & deathc == 1 & death_time >= 0~ 2, #< Evento en competencia (muerte antes de dialisis)
+      dialc == 1 & deathc == 1 & (tdialc <= tdeathc) ~ 1, 
+      TRUE ~ as.numeric(NA)
+    ), 
+    status_num2 = factor(status_num, levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")), 
+    time = case_when(
+      status_num == 0 ~ tdialc, 
+      status_num == 1 ~ tdialc, 
+      status_num == 2 ~ tdeathc, 
+      TRUE ~ as.numeric(NA)
+    ), 
+    status_num = as.integer(status_num), 
+    grf_cat = case_when(
+      eGFR_ckdepi > 90 ~ "G1", 
+      eGFR_ckdepi >= 60 & eGFR_ckdepi <= 90 ~ "G2", 
+      eGFR_ckdepi >= 45 & eGFR_ckdepi < 60 ~ "G3a", 
+      eGFR_ckdepi >= 30 & eGFR_ckdepi < 45 ~ "G3b", 
+      eGFR_ckdepi >= 15 & eGFR_ckdepi < 30 ~ "G4", 
+      eGFR_ckdepi < 15 ~ "G5", 
+      TRUE ~ as.character(NA)
+    ), 
+    acr2 = urine_album / urine_crea, 
+    acr_cat = case_when(
+      acr < 30 ~ "A1", 
+      acr >= 30 & acr <= 300 ~ "A2", 
+      acr > 300 ~ "A3",
+      TRUE ~ as.character(NA)
+    ), 
+    ckd_class = case_when(
+      grf_cat %in% c("G1", "G2") & acr_cat == "A1" ~ "Low risk", 
+      (grf_cat %in% c("G3a") & acr_cat == "A1") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A2") ~ "Moderately increased risk", 
+      (grf_cat %in% c("G3b") & acr_cat == "A1") | 
+        (grf_cat == "G3a" & acr_cat == "A2") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A3") ~ "High risk", 
+      (grf_cat %in% c("G4", "G5") & acr_cat == "A1") | 
+        (grf_cat %in% c("G3b", "G4", "G5") & acr_cat == "A2") | 
+        (grf_cat %in% c("G3a", "G3b", "G4", "G5") & acr_cat == "A3") ~ "Very high risk"
+    ), 
+    grf_cat = factor(grf_cat, levels = c("G1", "G2", "G3a", "G3b", "G4", "G5")), 
+    acr_cat = factor(acr_cat, levels = c("A1", "A2", "A3")), 
+    ckd_stage = case_when(
+      grf_cat %in% c("G3a", "G3b", "G4") ~ "Stages 3-4", 
+      grf_cat %in% c("G1", "G2", "G5") ~ "Stages 1-2 y 5"
+    ), 
+    ckd_stage = factor(ckd_stage, levels = c("Stages 1-2 y 5", "Stages 3-4")), 
+    ckd_stage2 = case_when(
+      grf_cat %in% c("G3b", "G4") ~ "Stages 3b-4", 
+      grf_cat %in% c("G3a", "G5", "G1", "G2") ~ "Stages 1-3 y 5"
+    ), 
+    ckd_stage2 = factor(ckd_stage2, levels = c("Stages 1-3 y 5", "Stages 3b-4")), 
+    ckd_class = factor(ckd_class, 
+                       levels = c("Low risk", 
+                                  "Moderately increased risk", 
+                                  "High risk", 
+                                  "Very high risk")), 
+    ckd_class2 = case_when(
+      ckd_class %in% c("Low risk", "Moderately increased risk", 
+                       "High risk") ~ "Moderately/High risk", 
+      ckd_class == "Very high risk" ~ "Very high risk", 
+      TRUE ~ as.character(NA)
+    ), 
+    ckd_class2 = factor(ckd_class2, 
+                        levels = c("Moderately/High risk", "Very high risk")), 
+    across(where(is.factor), ~droplevels(.)), 
+    total = 1, 
+    # Censoring to 5 years----
+    eventd = case_when(
+      status_num2 == "Alive w/o Kidney Failure" ~ 0, 
+      status_num2 == "Kidney Failure" ~ 1, 
+      status_num2 == "Death w/o Kidney Failure" ~ 2, 
+      TRUE ~ as.numeric(NA)
+    ), 
+    event = case_when(
+      status_num2 %in% c("Alive w/o Kidney Failure", "Death w/o Kidney Failure") ~ 0, 
+      status_num2 %in% c("Kidney Failure") ~ 1, 
+      TRUE ~ as.numeric(NA)
+    ),
+    time_death5y = censor.time(time, deathc, time.cens = 5)$surv.time.cens, 
+    death5y = censor.time(time, deathc, time.cens = 5)$surv.event.cens, 
+    time_death2y = censor.time(time, deathc, time.cens = 2)$surv.time.cens, 
+    death2y = censor.time(time, deathc, time.cens = 2)$surv.event.cens, 
+    time5y = censor.time(time, event, time.cens = 5)$surv.time.cens, 
+    event5y = censor.time(time, event, time.cens = 5)$surv.event.cens, 
+    eventd5y = censor.time(time, eventd, time.cens = 5)$surv.event.cens, 
+    eventd5ylab = case_when(
+      eventd5y == 0 ~ "Alive w/o Kidney Failure", 
+      eventd5y == 1 ~ "Kidney Failure", 
+      eventd5y == 2 ~ "Death w/o Kidney Failure", 
+      TRUE ~ as.character(NA)
+    ), 
+    time2y = censor.time(time, event, time.cens = 2)$surv.time.cens, 
+    event2y = censor.time(time, event, time.cens = 2)$surv.event.cens, 
+    eventd2y = censor.time(time, eventd, time.cens = 2)$surv.event.cens, 
+    eventd2ylab = case_when(
+      eventd2y == 0 ~ "Alive w/o Kidney Failure", 
+      eventd2y == 1 ~ "Kidney Failure", 
+      eventd2y == 2 ~ "Death w/o Kidney Failure", 
+      TRUE ~ as.character(NA)
+    )
+  ) |> 
+  set_variable_labels(
+    cas = "Centro de atención de salud", 
+    sex = "Sexo", 
+    male = "Sexo, masculino", 
+    age = "Edad (años)", 
+    assess_date = "Fecha de evaluación", 
+    crea = "Creatinina sérica (mg/dL)", 
+    eGFR_ckdepi = "TFG usando CKD-EPI, ml/min/1.73m2", 
+    acr = "Relación albúmina-creatinina, mg/g", 
+    urine_album = "Albúmina en orina (mg/ml)", 
+    urine_crea = "Creatinina en orina (mg/dl)", 
+    death_date = "Fecha de defunción", 
+    dial_date = "Fecha de hemodiálisis", 
+    hta = "Hipertensión", 
+    dm = "Diabetes Mellitus", 
+    risk2y = "Riesgo pronosticado de fallo renal a 2 años", 
+    risk5y = "Riesgo pronosticado de fallo renal a 5 años", 
+    pi2y = "Índice pronóstico de fallo renal a 2 años", 
+    pi5y = "Índice pronóstico de fallo renal a 5 años",     
+    grf_cat = "Categorías de TFG", 
+    acr_cat = "Categorías de albuminuria persistente", 
+    ckd_class = "Clasificación CKD KDIGO", 
+    ckd_class2 = "Clasificación CKD KDIGO",
+    ckd_stage = "Etapas de CKD", 
+    ckd_stage2 = "Etapas de CKD", 
+    status_num = "Resultado", 
+    status_num2 = "Resultado", 
+    eventd5ylab = "Resultado a 5 años", 
+    eventd2ylab = "Resultado a 2 años", 
+    eventd5y = "Resultado a 5 años", 
+    deathc = "Defunción",
+    death5y = "Defunción a 5 años", 
+    death2y = "Defunción a 2 años",
+    time_death5y = "Tiempo hasta muerte a 5 años", 
+    dialc = "Fallo renal", 
+    total = "Total", 
+    grf_cat = "Categorias de GFR", 
+    ckd_class = "Clasificación de CKD KDIGO") 
+```
+
+
+```{r}
+export(data_pred_kaelin4, here("Data", "Tidy", "data_kaelin.rds"))
+```
+
+
+### Datos de predictores y mortalidad a nivel NACIONAL
+
+Abrimos la data de predictores, la cual corresponde a la última versión de los datos actualizados al `11 de setiembre de 2023`. 
+
+```{r}
+data_pred_nac <- import(here("Data", 
+                             "Raw", 
+                             "02082023_bd_predictores_fallec.csv")) |> 
+  clean_names()
+
+head(data_pred_nac, 10)
+```
+
+#### Fusionar con datos de dialisis
+
+Lo primero será fusion los datos con hemodialisis:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(auto_cor = str_trim(auto_cor)) |> 
+  left_join(data_dial2, by = "auto_cor")
+```
+
+```{r}
+data_pred_nac |> 
+  count(dial)
+```
+
+Convertimos la variable indicadora dialisis en formato 1/0:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(dial = case_when(!is.na(dial) ~ dial, 
+                          is.na(dial) ~ 0, 
+                          TRUE ~ as.numeric(NA)), 
+         dial_date = case_when(!is.na(dial_date) ~ dial_date,
+                               is.na(dial_date) ~ dmy("07-09-2023")))
+```
+
+```{r}
+data_pred_nac |> 
+  count(dial)
+```
+
+#### Deidentificacion
+
+Nos quedamos solo con el autogenerado (`auto_cor`) y eliminamos los apellido y el dni:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  select(-dni, -apellid)
+
+head(data_pred_nac, 10)
+```
+
+
+#### Limpieza de columnas de interes
+
+Eliminamos columnas innecesarias:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  select(-ruta)
+
+head(data_pred_nac, 10)
+```
+
+A continuación vamos a limpiar las columnas de interés:
+
+##### Creatinina sérica
+
+- Armonizando la columna `creat_mg_percent`:
+
+```{r}
+data_pred_nac |> 
+  count(creat_mg_percent) 
+```
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(creat_ser_unid = case_match(creat_mg_percent, 
+                                     "" ~ "No info", 
+                                     c("CREASER (mg%)",  
+                                       "CREASER(mg%)", 
+                                       "CREAT (mg%)",  
+                                       "CREATININA  mg %", 
+                                       "CREATININA  mg%", 
+                                       "CREATININA  mg/dl", 
+                                       "Creatinina (mg%)", 
+                                       "CREATININA (mg%)", 
+                                       "Creatinina en sangre (mg%)", 
+                                       "CREATININA mg %", 
+                                       "Creatinina mg%", 
+                                       "CREATININA mg%", "CREATININA mg.", 
+                                       "Creatinina sangre (mg%)", 
+                                       "Creatinina Sangre (mg%)", 
+                                       "CREATININA SANGRE (mg%)", 
+                                       "CREATININA SANGRE (MG%)", 
+                                       "Creatinina Sangre (mg/dl)", 
+                                       "CREATININA SERICA  (mg%)", 
+                                       "CREATININA SÉRICA mg%", 
+                                       "CREATININA SÉRICA mg/dl", 
+                                       "CREATININA SERICA(mg%)", 
+                                       "CREATININA%", 
+                                       "CREATININA(MG%)", 
+                                       "Creatinina\nmg%", 
+                                       "CREATININA\nmg%") ~ "mg/dl", 
+                                     c("CREATININA", "CREATININA SERICA") ~ "No unidades"
+                                     ))
+
+data_pred_nac |> 
+  count(creat_ser_unid)
+```
+
+Como se puede apreciar de arriba, no sabemos las unidades de algunos resultados de creatinina. Una forma de considerar mantener estos datos o eliminarlos es evaluar si el rango de sus valores cae dentro de lo esperado para esta variable. Por tal motivo, compararemos la distrbución de estos valores. 
+
+```{r}
+data_pred_nac |> 
+  ggplot(aes(x = creat_ser_unid, y = creatinina_cor)) + 
+  geom_boxplot()
+```
+
+Observamos que en la categoría "No info" simplemente no hay valores (todos son perdidos), mientras que en la categoría "No unidades" la dispersión de valores cae dentro del rango aceptable para creatinina sérica. Por tal motivo, decidimos que es razonable concluir que sí sean valores de creatinina en sus unidades original y procederemos a mantenerlos. 
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(creat_ser_unid = case_match(creat_ser_unid, 
+                                     "No info" ~ NA, 
+                                     "mg/dl" ~ "mg/dl", 
+                                     "No unidades" ~ "mg/dl"
+                                     ))
+
+data_pred_nac |> 
+  count(creat_ser_unid)
+```
+
+```{r}
+Hmisc::describe(data_pred_nac$creatinina_cor)
+```
+Vamos a conservar todos los valores de creatinina y la guardaremso en una nueva variable llamada crea:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  rename(crea = creatinina_cor)
+```
+
+
+#
+
+
+
+##### Creatininuria
+
+- Exploracion inicial de la variable:
+
+```{r}
+data_pred_nac |> 
+  count(creatinuria_cor)
+```
+
+```{r}
+data_pred_nac |> 
+  count(desc_creatinuria)
+```
+
+
+Se aprecia que casi todos son datos perdidos, sin embargo, estos datos pueden recuperarse de dos maneras, en ambos casos haciendo uso de las columnas tasa_ac_cor y desc_tasa_ac. Como se puede apreciar, la columna desc_tasa_ac indica si el valor de tasa_ac_cor es el de la razón albuminuria-creatininuria o es el de la creatinuria a secas:
+
+```{r}
+data_pred_nac |> 
+  count(desc_tasa_ac)
+```
+
+Vamos a usar esta información para corregir los valores de creatinuria_cor. Primero vamos a simplificar los valores de la variable desc_tasa_ac:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(desc_tasa_ac = case_match(desc_tasa_ac, 
+                                    "" ~ "No info", 
+                                    c("CREATININA EN ORINA", 
+                                      "CREATINU(mg/dl)", 
+                                      "CREATINUIRA(mg/dl)", 
+                                      "creatinuria",
+                                      "Creatinuria", 
+                                      "CREATINURIA", 
+                                      "Creatinuria  Aclaramiento(mg/dl)", 
+                                      "Creatinuria (G/D)", 
+                                      "CREATINURIA (mg %)", 
+                                      "Creatinuria (mg%)", 
+                                      "CREATINURIA (MG%)", 
+                                      "Creatinuria (mg/dl)", 
+                                      "CREATINURIA (mg/dl)", 
+                                      "CREATINURIA (mg/L)", 
+                                      "Creatinuria (mgl /dl)", 
+                                      "CREATINURIA(mg/dl)") ~ "Creatinuria (mg/dL)", 
+                                    c("Tasa  (mg/g)", 
+                                      "TASA ALB/CRE", 
+                                      "TASA ALB/CREA", 
+                                      "Tasa alb/creat.", 
+                                      "Tasa Album. / Creatinina (mg/g)", 
+                                      "Tasa Albúmina / Creatinina (mg/g)", 
+                                      "Tasa Albúmina / Creatinina\n(mg/g)", 
+                                      "TASA ALBUMINA /CREATININA mg/g", 
+                                      "Tasa Albúmina Creatinina mg/g", 
+                                      "Tasa Albúmina/Creati (mg/g)", 
+                                      "Tasa albumina/Creatinina (mg/g)", 
+                                      "TASA ALBUMINA/CREATININA (mg/g)", 
+                                      "Tasa Albúmina/Creatinina (mg/g)", 
+                                      "Tasa Albúmina/Creatinina mg/g", 
+                                      "TASA ALBÚMINA/CREATININA MG/G",
+                                      "Tasa Albúmina/Creatinuria mg/g", 
+                                      "Tasa Albuminuria / Creatinuria (mg/g)",
+                                      "Tasa Albúminuria/Creatininuria (mg/g)", 
+                                      "Tasa Albúminuria/Creatinuria mg/g", 
+                                      "Tasa Albuminuria/Creatinuria(mg/g)") ~ "Relación Albuminuria/Creatinuria", 
+                                    c("Dep.creat(ml/min)") ~ "Otros"))
+
+data_pred_nac |> 
+  count(desc_tasa_ac)
+```
+
+Ahora verificaremos qué rangos de valores manejan cada una de estas categorías:
+
+```{r}
+data_pred_nac |> 
+  ggplot(aes(x = desc_tasa_ac, y = tasa_ac_cor)) + 
+  geom_boxplot()
+```
+
+```{r}
+stby(data = data_pred_nac, 
+     INDICES = data_pred_nac$desc_tasa_ac, 
+     FUN = descr, 
+     stats = "common", 
+     transpose = TRUE)
+```
+
+Se aprecia que para la categoría de creatinuria hay un valor excesivamente alto que supera los billone. Valores en este rango son definitivamente no plausibles por lo que procederemos a eliminarlos:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(tasa_ac_cor = if_else(tasa_ac_cor > 9e8, NA, tasa_ac_cor))
+```
+
+Ahora volveremos a verificar qué rangos de valores manejan cada una de estas categorías:
+
+```{r}
+data_pred_nac |> 
+  ggplot(aes(x = desc_tasa_ac, y = tasa_ac_cor)) + 
+  geom_boxplot()
+```
+
+Como era de esperarse, ahora solo la relación albuminuiria/creatinuria maneja rangos muy grandes. Sin embargo, por experiencia previa de análisi de datos de esta variable en nuestro equipo de investigación, hemos podido apreciar valores tan altos como 150 mil. Creemos que, por ser una variable de razón, es posible tener valores inusualmente altos. Por tal motivo, mantendremos estos valores hasta el final del procesamiento y, posteriormente, veremos qué decisión tomar para su manejo.
+
+Ahora veamos mejor el rango de valores analizando solo creatinuria vs otros.
+
+```{r}
+data_pred_nac |> 
+  filter(desc_tasa_ac != "Relación Albuminuria/Creatinuria") |> 
+  ggplot(aes(x = desc_tasa_ac, y = tasa_ac_cor)) + 
+  geom_boxplot()
+```
+
+Procedemos a crear la variable creatinuria
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(urine_crea = case_when(desc_tasa_ac == "Creatinuria (mg/dL)" & 
+                                  is.na(creatinuria_cor) ~ tasa_ac_cor, 
+                                desc_tasa_ac == "Creatinuria (mg/dL)" & 
+                                  !is.na(creatinuria_cor) ~ creatinuria_cor, 
+                                TRUE ~ as.numeric(NA)))
+```
+
+
+```{r}
+data_pred_nac |> 
+  filter(desc_tasa_ac != "Relación Albuminuria/Creatinuria") |> 
+  ggplot(aes(x = desc_tasa_ac, y = urine_crea)) + 
+  geom_boxplot()
+```
+
+##### Albuminuria
+
+Con esta variable tenemos el problema de que hay dos columnas que podrían contener valores. Vamos a limpiar cada columna por separdo y luego integrarlos en una sola variable. 
+
+```{r}
+data_pred_nac |> 
+  count(desc_albuminuria)
+```
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(desc_albuminuria2 = case_match(desc_albuminuria, 
+                                        "" ~ "No info", 
+                                        c("ALBUM  (mg/dl)", 
+                                          "ALBUM(g/dl)", 
+                                          "ALBUMINA", 
+                                          "ALBUMINA  (g/dl)", 
+                                          "ALBUMINA  (mg/dl)", 
+                                          "ALBUMINA (g/dl)", 
+                                          "albuminuria", 
+                                          "ALBUMINURIA", 
+                                          "ALBUMINURIA (mg %)", 
+                                          "Albuminuria (mg%)", 
+                                          "ALBUMINURIA (MG%)", 
+                                          "Albuminuria (mg%) microalbuminuria", 
+                                          "Albuminuria (mg/dl)", 
+                                          "Albuminuria (mg/dL)", 
+                                          "ALBUMINURIA (mg/dl)", 
+                                          "Albuminuria(mg%)", 
+                                          "Albuminuria(mg/dl)", 
+                                          "ALBUMINURIA(mg/dl)") ~ "Albuminuria", 
+                                        c("ALBUM  >3,5", 
+                                          "ALBUM>3.5", 
+                                          "ALBUMINA > 3.5", 
+                                          "ALBÚMINA >3",                                           
+                                          "ALBÚMINA >3,5", 
+                                          "ALBUMINA >3.5") ~ "Albumin(?)", 
+                                        c("Micro albuminuria", 
+                                          "MICRO ALBUMINURIA", 
+                                          "Micro Albuminuria (mg%)", 
+                                          "MICROALBUMINURIA", 
+                                          "Mircoalbuminuria en tira reactiva") ~ 
+                                          "Microalbuminuria"))
+```
+
+
+```{r}
+data_pred_nac |> 
+  count(desc_albuminuria2)
+```
+
+```{r}
+stby(data = data_pred_nac %>% select(desc_albuminuria2, albuminuria_cor), 
+     INDICES = data_pred_nac$desc_albuminuria2, 
+     FUN = descr, 
+     stats = "common", 
+     transpose = TRUE)
+```
+
+Se aprecian valores inusualmente altos de albuminuria, los cuales consideraremos como dato perdido por ser implausibles:
+
+```{r}
+data_pred_nac |> 
+  ggplot(aes(x = desc_albuminuria2, y = albuminuria_cor)) + 
+  geom_boxplot()
+```
+
+Convertimos a NA a los valores >1e5 y volvemos a verificar:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(albuminuria_cor = if_else(albuminuria_cor > 1e5, NA, albuminuria_cor))
+```
+
+```{r}
+data_pred_nac |> 
+  ggplot(aes(x = desc_albuminuria2, y = albuminuria_cor)) + 
+  geom_boxplot()
+```
+
+```{r}
+stby(data = data_pred_nac %>% select(desc_albuminuria2, albuminuria_cor), 
+     INDICES = data_pred_nac$desc_albuminuria2, 
+     FUN = descr, 
+     stats = "common", 
+     transpose = TRUE)
+```
+
+Por último, hemos vemos que hay muy pocos individuos con Albumin(?), con microalbuminuria y sin Información. Debido a que no estamos seguros qué valores son y la proporción de etos es insignificante, decidimos convertir en dato perdido estos valores.
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(pre_urine_album1 = if_else(desc_albuminuria2 == "Albuminuria", albuminuria_cor, NA))
+```
+
+```{r}
+data_pred_nac |> 
+  ggplot(aes(x = desc_albuminuria2, y = pre_urine_album1)) + 
+  geom_boxplot()
+```
+
+##### Albuminemia
+
+Con esta variable tenemos el problema de que hay dos columnas que podrían contener valores. Vamos a limpiar cada columna por separdo y luego integrarlos en una sola variable. 
+
+```{r}
+data_pred_nac |> 
+  count(desc_albuminemia)
+```
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(desc_albuminemia2 = case_match(desc_albuminemia, 
+                                        "" ~ "No info", 
+                                        c("ALBUMINURIA", 
+                                          "ALBUMINURIA (mg %)", 
+                                          "Albuminuria (mg%)", 
+                                          "ALBUMINURIA (MG%)", 
+                                          "Albuminuria (mg/dl)", 
+                                          "Albuminuria (mg/L)") ~ "Albuminuria", 
+                                        c("ALBUM", 
+                                          "ALBUM  (mg/dl)", 
+                                          "ALBUM  >3,5", 
+                                          "ALBUM >3,5", 
+                                          "ALBUM(g/dl)", 
+                                          "ALBUM>3.5", 
+                                          "ALBUMINA", 
+                                          "ALBUMINA  (g/dl)", 
+                                          "ALBUMINA  (mg/dl)", 
+                                          "ALBUMINA  >3,5", 
+                                          "ALBUMINA (g/dl)", 
+                                          "ALBUMINA >3.5") ~ "Albumin(?)", 
+                                        c("ALBUMINA  (mg/dl)-SERICA") ~ "Albuminemia", 
+                                        c("Examenes deñl 21 de Nov. 2011, no tiene microalbuminuria", 
+                                          "Micro albuminuria", "MICRO ALBUMINURIA", 
+                                          "MICROALBUMINURIA", 
+                                          "Mircoalbuminuria en tira reactiva", 
+                                          "MOCROALBUMINURIA EN TIRA REACTIVA", 
+                                          "SI ALBUMINA CORREGIDA(1)") ~ 
+                                          "Microalbuminuria"))
+```
+
+```{r}
+data_pred_nac |> 
+  ggplot(aes(x = desc_albuminemia2, y = albuminemia_cor)) + 
+  geom_boxplot()
+```
+
+
+Convertimos a NA a los valores >1e5 y volvemos a verificar:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(albuminemia_cor = if_else(albuminemia_cor > 1e5, NA, albuminemia_cor))
+```
+
+```{r}
+data_pred_nac |> 
+  ggplot(aes(x = desc_albuminemia2, y = albuminemia_cor)) + 
+  geom_boxplot()
+```
+
+```{r}
+stby(data = data_pred_nac %>% select(desc_albuminemia2, albuminemia_cor), 
+     INDICES = data_pred_nac$desc_albuminemia2, 
+     FUN = descr, 
+     stats = "common", 
+     transpose = TRUE)
+```
+
+Por último, para ser consistentes con el manejo de albuminuria, como desconocemos que es Albulim, vamos a convertir a estos individuos en datos perdidos. Del mismo modo, los que son Albuminemia también serán eliminados porque representan otra variable. Las microalbuminurias también serán eliminadas.
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(pre_urine_album2 = if_else(desc_albuminemia2 == "Albuminuria", albuminemia_cor, NA))
+```
+
+```{r}
+data_pred_nac |> 
+  ggplot(aes(x = desc_albuminemia2, y = pre_urine_album2)) + 
+  geom_boxplot()
+```
+
+- Por ultimo, debemos integrar los datos de las albuminurias de ambas variables:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(val_album = case_when(is.na(pre_urine_album1) & is.na(pre_urine_album2) ~ "Ambos NA", 
+                               is.na(pre_urine_album1) & !is.na(pre_urine_album2) ~ "NA - Dato", 
+                               !is.na(pre_urine_album1) & is.na(pre_urine_album2) ~ "Dato - NA", 
+                               !is.na(pre_urine_album1) & !is.na(pre_urine_album2) ~ "Dato - Dato"))
+
+data_pred_nac |> 
+   count(val_album)
+```
+
+Se aprecia que siempre que no hay doble dato de albuminuria en cada columna, por tal motivo, procederemos a rescatar los datos:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(urine_album = case_when(val_album == "Ambos NA" ~ as.numeric(NA), 
+                                 val_album == "Dato - NA" ~ pre_urine_album1, 
+                                 val_album == "NA - Dato" ~ pre_urine_album2))
+```
+
+
+```{r}
+skimr::skim(data_pred_nac$urine_album)
+```
+
+##### Razón albuminuria/creatinuria
+
+Vamos tambien a crear una variable que solo contenga la razón albuminuria-creatinuria (RAC):
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(acr = case_when(
+    desc_tasa_ac == "Relación Albuminuria/Creatinuria" ~ tasa_ac_cor, 
+    TRUE ~ as.numeric(NA)
+    ))
+
+data_pred_nac |> 
+  count(acr)
+```
+
+```{r}
+skimr::skim(data_pred_nac$acr)
+```
+
+- Ahora crearmos una variable que calcule los acr_calc en base a la informacion disponible de albuminura y creatinuria que tenemos:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(acr_calc = urine_album / urine_crea)
+```
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(val_acr = case_when(is.na(acr_calc) & is.na(acr) ~ "Ambos NA", 
+                               is.na(acr_calc) & !is.na(acr) ~ "NA - Dato", 
+                               !is.na(acr_calc) & is.na(acr) ~ "Dato - NA", 
+                               !is.na(acr_calc) & !is.na(acr) ~ "Dato - Dato"))
+
+ data_pred_nac |> 
+   count(val_acr)
+```
+
+```{r}
+skimr::skim(data_pred_nac$acr)
+```
+```{r}
+nrow(data_pred_nac) - 252767
+```
+
+Podemos apreciar que no hay dos columnas con datos, lo que hace que no se contradigan los valores. Vamos a proceder a actualizar la variable ACR para que contenga todos los valore de ACR que se puedan:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(acr = case_when(val_acr == "Ambos NA" ~ as.numeric(NA), 
+                         val_acr == "Dato - NA" ~ acr_calc, 
+                         val_acr== "NA - Dato" ~ acr))
+```
+
+```{r}
+skimr::skim(data_pred_nac$acr)
+```
+
+```{r}
+nrow(data_pred_nac) - 251946
+```
+
+- Por ultimo, trataremos de recuperar los valores de de albuminuria y creatinuria que no estaban disponibles:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(val_album_crea_acr = case_when(is.na(urine_album) & is.na(urine_crea) & is.na(acr) ~ "NA - NA - NA", 
+                                        is.na(urine_album) & !is.na(urine_crea) & !is.na(acr) ~ "NA - Dato - Dato", 
+                                        !is.na(urine_album) & is.na(urine_crea) & !is.na(acr) ~ "Dato - NA - Dato",
+                                        !is.na(urine_album) & !is.na(urine_crea) & is.na(acr) ~ "Dato - Dato - NA",
+                                        is.na(urine_album) & is.na(urine_crea) & !is.na(acr) ~ "NA - NA - Dato",
+                                        is.na(urine_album) & !is.na(urine_crea) & is.na(acr) ~ "NA - Dato - NA", 
+                                        !is.na(urine_album) & is.na(urine_crea) & is.na(acr) ~ "Dato - NA - NA", 
+                                        !is.na(urine_album) & !is.na(urine_crea) & !is.na(acr) ~ "Dato - Dato - Dato"
+  ))
+
+data_pred_nac |> 
+  count(val_album_crea_acr)
+```
+
+```{r}
+data_pred_nac  <- data_pred_nac |> 
+  mutate(urine_crea = case_when(val_album_crea_acr == "Dato - NA - Dato" ~ urine_album / acr, 
+                                TRUE ~ urine_crea))
+```
+
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(val_album_crea_acr2 = case_when(is.na(urine_album) & is.na(urine_crea) & is.na(acr) ~ "NA - NA - NA", 
+                                        is.na(urine_album) & !is.na(urine_crea) & !is.na(acr) ~ "NA - Dato - Dato", 
+                                        !is.na(urine_album) & is.na(urine_crea) & !is.na(acr) ~ "Dato - NA - Dato",
+                                        !is.na(urine_album) & !is.na(urine_crea) & is.na(acr) ~ "Dato - Dato - NA",
+                                        is.na(urine_album) & is.na(urine_crea) & !is.na(acr) ~ "NA - NA - Dato",
+                                        is.na(urine_album) & !is.na(urine_crea) & is.na(acr) ~ "NA - Dato - NA", 
+                                        !is.na(urine_album) & is.na(urine_crea) & is.na(acr) ~ "Dato - NA - NA", 
+                                        !is.na(urine_album) & !is.na(urine_crea) & !is.na(acr) ~ "Dato - Dato - Dato"
+  ))
+
+data_pred_nac |> 
+  count(val_album_crea_acr2)
+```
+
+Notar que la mayoría de veces, solo tengo el dato de la `razón albuminuria-creatinuria`, pero no tengo los demás valores.
+
+##### Fecha de ingreso
+
+Exploraremos la data de fecha de ingreso:
+
+```{r}
+data_pred_nac |> 
+  count(f_ingreso) |> 
+  head()
+```
+
+Luego procedemos a transforma los datos en una columna de tipo fecha:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(f_ingreso = dmy(f_ingreso))
+```
+
+Verificamos que la conversion este bien hecha:
+
+```{r}
+data_pred_nac |> 
+  count(f_ingreso) |> 
+  head()
+```
+
+Creamos una nueva variable que se llame:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(assess_date = f_ingreso)
+```
+
+
+##### Fecha de nacimiento
+
+Primero exploremos la estructura de la variable fecha de nacimiento (fn):
+
+```{r}
+data_pred_nac |> 
+  count(fn)
+```
+
+Luego convertimos la variable de string a clase date:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(f_nac = dmy(fn))
+```
+
+Se verifica la conversion a date:
+
+```{r}
+data_pred_nac |> 
+  count(f_nac)
+```
+
+Creamos una nueva variable que se llame nac_date:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(nac_date = f_nac)
+```
+
+
+##### Edad
+
+- Edad calculada restando fechas:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(age = floor(as.interval(f_nac %--% f_ingreso) / dyears(1)))
+```
+
+##### Sexo
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(sex = case_match(sexo, 
+                          0 ~ "Femenino", 
+                          1 ~ "Masculino"), 
+         sex = factor(sex, 
+                      levels = c("Femenino", "Masculino")))
+```
+
+Tambien crearemos la variable male:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(male = if_else(sex == "Masculino", 1, 0))
+```
+
+##### Hipertension
+
+Veamos como esta estructurado el indicador de hta:
+
+```{r}
+data_pred_nac |> 
+  tabyl(hta, hta_dm)
+```
+
+La variable hta_dm debe distribuirse dentro de hta:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(hta = case_when(hta == 1 | hta_dm == 1 ~ 1, 
+                         hta == 0 & hta_dm == 0 ~ 0, 
+                         TRUE ~ as.numeric(NA)))
+```
+
+Se verifica que la transformacion fue apropiada:
+
+```{r}
+data_pred_nac |> 
+  tabyl(hta, hta_dm)
+```
+
+##### Diabetes Mellitus
+
+Veamos como esta estructurado el indicador de dm:
+
+```{r}
+data_pred_nac |> 
+  tabyl(dm, hta_dm)
+```
+
+La variable hta_dm debe distribuirse dentro de hta:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(dm = case_when(dm == 1 | hta_dm == 1 ~ 1, 
+                         dm == 0 & hta_dm == 0 ~ 0, 
+                         TRUE ~ as.numeric(NA)))
+```
+
+Se verifica que la transformacion fue apropiada:
+
+```{r}
+data_pred_nac |> 
+  tabyl(dm, hta_dm)
+```
+
+#### Tasa de filtración glomerural
+
+Aunque tenemos una variable de tasa de filtracion glomerual estiamda, se aprecia que esta proviene de diversos métodos de cálculos, por lo que no podemos considerarla para el análisis.
+
+```{r}
+data_pred_nac |> 
+  count(desc_tfg)
+```
+
+```{r}
+data_pred_nac |> 
+  count(tfg_cor)
+```
+
+```{r}
+Hmisc::describe(data_pred_nac$tfg_cor)
+```
+
+Por tanto, vamos a volver a crear la tasa de filtracion glomerular estimada usando el metodo de CKD-EPI:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(eGFR_ckdepi = case_when(
+    crea <= 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-0.329)) * (0.993 ^ (age)) * 1, 
+    crea > 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-1.209)) * (0.993 ^ (age)) * 1, 
+    crea <= 0.9 & sex == "Masculino" ~ 141 * ((crea / 0.9) ^ (-0.411)) * (0.993 ^ (age)) * 1, 
+    crea > 0.9 & sex == "Masculino" ~ 141 * ((crea / 0.9) ^ (-1.209)) * (0.993 ^ (age)) * 1, 
+    TRUE ~ as.numeric(NA)
+    ))
+```
+
+```{r}
+Hmisc::describe(data_pred_nac$eGFR_ckdepi)
+```
+##### Region de procedencia
+
+
+```{r}
+data_pred_nac |> 
+  count(region)
+```
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(cas = str_trim(region), 
+         cas = str_to_title(region))
+```
+
+```{r}
+data_pred_nac |> 
+  count(cas)
+```
+
+##### Fallecimiento
+
+Vemos que la variable fallece tiene las columnas de fechas de fallecimiento totalmente desarmonizadas. Vamos a convertirlas a formato fecha:
+
+
+```{r}
+data_pred_nac |> 
+  count(fallece) |> 
+  head()
+```
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(death_date = dmy(fallece))
+```
+Primero procederemos a crear la variable death:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(death = case_when(!is.na(death_date) ~ 1, 
+                           is.na(death_date) ~ 0, 
+                           TRUE ~ 0))
+```
+
+Luego procederemos a censurar las fechas que no son de muerte para el 02 de agosto de 2023.
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(death_date = case_when(is.na(death_date ) ~ dmy("02-08-2023"), 
+                                TRUE ~ death_date))
+```
+
+
+
+```{r}
+data_pred_nac |> 
+  count(death)
+```
+Por ultimo, crearemos algunas variables extras relacionadas con la censura del presente estudio:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(    
+    deathc = case_when(
+      death == 0 | is.na(death) ~ 0, 
+      death == 1 & death_date <= as.Date("2022-12-31") ~ 1, 
+      death == 1 & death_date > as.Date("2022-12-31") ~ 0, 
+      TRUE ~ as.numeric(NA)
+    ),
+    ddeathc = case_when(
+      death_date <= as.Date("2022-12-31") ~ death_date, 
+      death_date > as.Date("2022-12-31") | is.na(death_date) ~ as.Date("2022-12-31"),
+      TRUE ~ as.Date(NA)
+    ))
+```
+
+```{r}
+data_pred_nac |> 
+  count(deathc)
+```
+
+
+##### Año
+
+```{r}
+data_pred_nac |> 
+  count(anio)
+```
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(year = year(assess_date))
+```
+
+
+##### Selección de columnas finales 
+
+```{r}
+datos <- data_pred_nac |> 
+  select(auto_cor, sex, age, hta, dm, cas, nac_date, assess_date, crea, 
+         eGFR_ckdepi, urine_album, urine_crea, acr, death_date, death,  deathc, 
+         ddeathc, dial, dial_date, diag_cie)
+```
+
+
+#### Completado de celdas vacias
+
+Para cada individuo con su fecha, vamos a completar las celdas con datos contiguos. 
+
+Vamos a contar el numero de datos perdidos que hay por cada fila, ordenarlas de mayor completitud a menor completitud de datos y eliminar todos los duplicados solo para quedarnos con las filas que más datos tengan. 
+
+```{r}
+datos$nmissing <- apply(datos, 1, function(x){sum(is.na(x))})
+```
+
+```{r}
+datos2 <- datos
+```
+
+```{r}
+VIM::aggr(datos)
+```
+
+```{r}
+datos |> 
+  ggplot(aes(x = eGFR_ckdepi, y = acr)) + 
+  scale_y_continuous(trans = "log10") + 
+  geom_miss_point() + 
+  facet_wrap(dial ~ .)
+```
+
+```{r}
+gg_miss_upset(datos)
+```
+
+
+```{r}
+gg_miss_upset(datos |>  select(eGFR_ckdepi, acr))
+```
+
+Luego vamos a proceder a completar las celdas perdidas para cada variable:
+
+```{r}
+columnas_para_llenar <- c("sex", "age", "hta", "dm", "cas", "nac_date", 
+                          "crea", "eGFR_ckdepi", "urine_album", "urine_crea", 
+                          "acr")
+
+datos2 <- datos2 |> 
+  arrange(auto_cor)
+
+for (col in columnas_para_llenar) {
+  datos2 <- datos2 |> 
+    arrange(auto_cor, !!sym(col)) |> 
+    group_by(auto_cor, !!sym(col)) |> 
+    fill(!!sym(col), .direction = "up") |> 
+    ungroup()
+}
+```
+
+
+
+```{r}
+datos2 |> 
+  count(cas)
+```
+
+#### Identificacion y eliminacion de duplicados
+
+##### Duplicados de fila completa
+
+A continuacion vamos a hacer una primera limpieza identificado duplicados indenticos de linea y eliminandolos. Se identificaron `r data_pred_nac |> get_dupes() |> nrow()` filas con duplicados de toda la fila exactamente iguales:
+
+```{r}
+datos2 |> 
+  arrange(auto_cor, nmissing) |> 
+  get_dupes()
+```
+
+Procederemos a eliminarlos y quedarnos solo con uno:
+
+```{r}
+datos2 <- datos2 |> 
+  arrange(auto_cor, nmissing) |> 
+  distinct(.keep_all = TRUE)
+```
+
+Por ultimo, verificamos que ya no existan estos duplicados de fila completa:
+
+```{r}
+datos2 |> 
+  arrange(auto_cor, nmissing) |> 
+  get_dupes()
+```
+
+##### Duplicados de ID + fecha de ingreso
+
+```{r}
+datos2 |> 
+  arrange(auto_cor, nmissing) |> 
+  get_dupes(auto_cor, assess_date)
+```
+
+
+```{r}
+datos2 <- datos2 |> 
+  arrange(auto_cor, assess_date, nmissing)
+```
+
+```{r}
+datos2 |> 
+  arrange(auto_cor, assess_date, nmissing) |> 
+  get_dupes(auto_cor, assess_date)
+```
+
+Procederemos a eliminarlos y quedarnos solo con la primera fila que ha sido ordenada de tal manera que tenga la menor cantidad de datos perdidos:
+
+```{r}
+datos2 <- datos2 |> 
+  arrange(auto_cor, assess_date, nmissing) |> 
+  distinct(auto_cor, assess_date, .keep_all = TRUE)
+```
+
+```{r}
+datos2 |> 
+  arrange(auto_cor, assess_date, nmissing) |> 
+  get_dupes(auto_cor, assess_date)
+```
+
+##### Duplicados de ID unico
+
+Por último, veremos los duplicados de ID unico:
+
+```{r}
+datos2 |>
+  arrange(auto_cor, assess_date, nmissing) |> 
+  get_dupes(auto_cor)
+```
+
+Procedemos a ordenarlos para que el menor numero de datos perdidos por fila esté en la primera fila:
+
+```{r}
+datos2 <- datos2 |> 
+  arrange(auto_cor, assess_date)
+```
+
+```{r}
+datos2 |> 
+  arrange(auto_cor, assess_date, nmissing) |> 
+  get_dupes(auto_cor)
+```
+
+Procederemos a eliminar las primeras filas:
+
+```{r}
+datos2 <- datos2 |> 
+  arrange(auto_cor, assess_date, nmissing) |> 
+  distinct(auto_cor, .keep_all = TRUE)
+```
+
+```{r}
+datos2 |> 
+  arrange(auto_cor, assess_date, nmissing) |> 
+  get_dupes(auto_cor)
+```
+
+```{r}
+datos2 |> 
+  count(cas)
+```
+
+##### Datos perdidos
+
+```{r}
+sum_mis_data_pred_nac <- miss_summary(datos2)
+sum_mis_data_pred_nac
+```
+
+```{r}
+sum_mis_data_pred_nac$miss_var_summary |> 
+  knitr::kable()
+```
+
+
+#### Limpieza de datos
+
+```{r}
+datos3 <- datos2 |> 
+  mutate(
+    male = if_else(sex == "Masculino", 1, 0), 
+    risk2y = 1 - 0.9832 ^ exp(-0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137)), 
+    risk5y = 1 - 0.9365 ^ exp(-0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137)), 
+    pi2y = -0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137), 
+    pi5y = -0.2201 * (age / 10 - 7.036) + 0.2467 * (male - 0.5642) - 0.5567 * (eGFR_ckdepi / 5 - 7.222) + 0.4510 * (log(acr) - 5.137), 
+    dial_time = as.duration(assess_date %--% dial_date) / ddays(1), 
+    death_time = as.duration(assess_date %--% death_date) / ddays(1), 
+    dialc = case_when(
+      dial == 0 | is.na(dial) ~ 0, 
+      dial == 1 & dial_date <= as.Date("2022-12-31") ~ 1, 
+      dial == 1 & dial_date > as.Date("2022-12-31") ~ 0,
+      TRUE ~ as.numeric(NA)
+    ), 
+    ddialc = case_when(
+      dial_date <= as.Date("2022-12-31") ~ dial_date, 
+      dial_date > as.Date("2022-12-31") ~ as.Date("2022-12-31"),
+      is.na(dial_date) & deathc == 1 ~ ddeathc, 
+      is.na(dial_date) & deathc == 0 ~ as.Date("2022-12-31"), 
+      TRUE ~ as.Date(NA)
+    ), 
+    tdeathc = as.duration(assess_date %--% ddeathc) / dyears(1), 
+    tdialc = as.duration(assess_date %--% ddialc) / dyears(1), 
+    status_num = case_when(
+      dialc == 0 & deathc == 0 ~ 0, 
+      dialc == 1 & deathc == 0 ~ 1, #< Evento de interes: dialisis
+      dialc == 0 & deathc == 1 & death_time >= 0~ 2, #< Evento en competencia (muerte antes de dialisis)
+      dialc == 1 & deathc == 1 & (tdialc <= tdeathc) ~ 1, 
+      TRUE ~ as.numeric(NA)
+    ), 
+    status_num2 = factor(status_num, levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")), 
+    time = case_when(
+      status_num == 0 ~ tdialc, 
+      status_num == 1 ~ tdialc, 
+      status_num == 2 ~ tdeathc, 
+      TRUE ~ as.numeric(NA)
+    ), 
+    status_num = as.integer(status_num), 
+    grf_cat = case_when(
+      eGFR_ckdepi > 90 ~ "G1", 
+      eGFR_ckdepi >= 60 & eGFR_ckdepi <= 90 ~ "G2", 
+      eGFR_ckdepi >= 45 & eGFR_ckdepi < 60 ~ "G3a", 
+      eGFR_ckdepi >= 30 & eGFR_ckdepi < 45 ~ "G3b", 
+      eGFR_ckdepi >= 15 & eGFR_ckdepi < 30 ~ "G4", 
+      eGFR_ckdepi < 15 ~ "G5", 
+      TRUE ~ as.character(NA)
+    ), 
+    acr2 = urine_album / urine_crea, 
+    acr_cat = case_when(
+      acr < 30 ~ "A1", 
+      acr >= 30 & acr <= 300 ~ "A2", 
+      acr > 300 ~ "A3",
+      TRUE ~ as.character(NA)
+    ), 
+    ckd_class = case_when(
+      grf_cat %in% c("G1", "G2") & acr_cat == "A1" ~ "Low risk", 
+      (grf_cat %in% c("G3a") & acr_cat == "A1") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A2") ~ "Moderately increased risk", 
+      (grf_cat %in% c("G3b") & acr_cat == "A1") | 
+        (grf_cat == "G3a" & acr_cat == "A2") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A3") ~ "High risk", 
+      (grf_cat %in% c("G4", "G5") & acr_cat == "A1") | 
+        (grf_cat %in% c("G3b", "G4", "G5") & acr_cat == "A2") | 
+        (grf_cat %in% c("G3a", "G3b", "G4", "G5") & acr_cat == "A3") ~ "Very high risk"
+    ), 
+    grf_cat = factor(grf_cat, levels = c("G1", "G2", "G3a", "G3b", "G4", "G5")), 
+    acr_cat = factor(acr_cat, levels = c("A1", "A2", "A3")), 
+    ckd_stage = case_when(
+      grf_cat %in% c("G3a", "G3b", "G4") ~ "Stages 3-4", 
+      grf_cat %in% c("G1", "G2", "G5") ~ "Stages 1-2 y 5"
+    ), 
+    ckd_stage = factor(ckd_stage, levels = c("Stages 1-2 y 5", "Stages 3-4")), 
+    ckd_stage2 = case_when(
+      grf_cat %in% c("G3b", "G4") ~ "Stages 3b-4", 
+      grf_cat %in% c("G3a", "G5", "G1", "G2") ~ "Stages 1-3 y 5"
+    ), 
+    ckd_stage2 = factor(ckd_stage2, levels = c("Stages 1-3 y 5", "Stages 3b-4")), 
+    ckd_class = factor(ckd_class, 
+                       levels = c("Low risk", 
+                                  "Moderately increased risk", 
+                                  "High risk", 
+                                  "Very high risk")), 
+    ckd_class2 = case_when(
+      ckd_class %in% c("Low risk", "Moderately increased risk", 
+                       "High risk") ~ "Moderately/High risk", 
+      ckd_class == "Very high risk" ~ "Very high risk", 
+      TRUE ~ as.character(NA)
+    ), 
+    ckd_class2 = factor(ckd_class2, 
+                        levels = c("Moderately/High risk", "Very high risk")), 
+    across(where(is.factor), ~droplevels(.)), 
+    total = 1, 
+    # Censoring to 5 years----
+    eventd = case_when(
+      status_num2 == "Alive w/o Kidney Failure" ~ 0, 
+      status_num2 == "Kidney Failure" ~ 1, 
+      status_num2 == "Death w/o Kidney Failure" ~ 2, 
+      TRUE ~ as.numeric(NA)
+    ), 
+    event = case_when(
+      status_num2 %in% c("Alive w/o Kidney Failure", "Death w/o Kidney Failure") ~ 0, 
+      status_num2 %in% c("Kidney Failure") ~ 1, 
+      TRUE ~ as.numeric(NA)
+    ),
+    time_death5y = censor.time(time, deathc, time.cens = 5)$surv.time.cens, 
+    death5y = censor.time(time, deathc, time.cens = 5)$surv.event.cens, 
+    time_death2y = censor.time(time, deathc, time.cens = 2)$surv.time.cens, 
+    death2y = censor.time(time, deathc, time.cens = 2)$surv.event.cens, 
+    time5y = censor.time(time, event, time.cens = 5)$surv.time.cens, 
+    event5y = censor.time(time, event, time.cens = 5)$surv.event.cens, 
+    eventd5y = censor.time(time, eventd, time.cens = 5)$surv.event.cens, 
+    eventd5ylab = case_when(
+      eventd5y == 0 ~ "Alive w/o Kidney Failure", 
+      eventd5y == 1 ~ "Kidney Failure", 
+      eventd5y == 2 ~ "Death w/o Kidney Failure", 
+      TRUE ~ as.character(NA)
+    ), 
+    time2y = censor.time(time, event, time.cens = 2)$surv.time.cens, 
+    event2y = censor.time(time, event, time.cens = 2)$surv.event.cens, 
+    eventd2y = censor.time(time, eventd, time.cens = 2)$surv.event.cens, 
+    eventd2ylab = case_when(
+      eventd2y == 0 ~ "Alive w/o Kidney Failure", 
+      eventd2y == 1 ~ "Kidney Failure", 
+      eventd2y == 2 ~ "Death w/o Kidney Failure", 
+      TRUE ~ as.character(NA)
+    )
+  ) |> 
+  set_variable_labels(
+    cas = "Centro de atención de salud", 
+    sex = "Sexo", 
+    male = "Sexo, masculino", 
+    age = "Edad (años)", 
+    assess_date = "Fecha de evaluación", 
+    crea = "Creatinina sérica (mg/dL)", 
+    eGFR_ckdepi = "TFG usando CKD-EPI, ml/min/1.73m2", 
+    acr = "Relación albúmina-creatinina, mg/g", 
+    urine_album = "Albúmina en orina (mg/ml)", 
+    urine_crea = "Creatinina en orina (mg/dl)", 
+    death_date = "Fecha de defunción", 
+    dial_date = "Fecha de hemodiálisis", 
+    hta = "Hipertensión", 
+    dm = "Diabetes Mellitus", 
+    risk2y = "Riesgo pronosticado de fallo renal a 2 años", 
+    risk5y = "Riesgo pronosticado de fallo renal a 5 años", 
+    pi2y = "Índice pronóstico de fallo renal a 2 años", 
+    pi5y = "Índice pronóstico de fallo renal a 5 años",     
+    grf_cat = "Categorías de TFG", 
+    acr_cat = "Categorías de albuminuria persistente", 
+    ckd_class = "Clasificación CKD KDIGO", 
+    ckd_class2 = "Clasificación CKD KDIGO",
+    ckd_stage = "Etapas de CKD", 
+    ckd_stage2 = "Etapas de CKD", 
+    status_num = "Resultado", 
+    status_num2 = "Resultado", 
+    eventd5ylab = "Resultado a 5 años", 
+    eventd2ylab = "Resultado a 2 años", 
+    eventd5y = "Resultado a 5 años", 
+    deathc = "Defunción",
+    death5y = "Defunción a 5 años", 
+    death2y = "Defunción a 2 años",
+    time_death5y = "Tiempo hasta muerte a 5 años", 
+    dialc = "Fallo renal", 
+    total = "Total", 
+    grf_cat = "Categorias de GFR", 
+    ckd_class = "Clasificación de CKD KDIGO") 
+```
+
+#### Guardar dataset completo
+
+```{r}
+export(datos3, here("Data", "Tidy", "data_derived_nacional.rds"))
+```
+
+```{r}
+datos3 |> 
+  count(dial)
+```
+
+```{r}
+gg_miss_upset(datos3 |> 
+                select(eGFR_ckdepi, acr))
+```
+
+### Fusionar Datos Reba + Datos Nacional
+
+
+```{r}
+datos_total <- datos3 |> 
+  filter(cas != "Rebagliati") |> 
+  bind_rows(data_pred_reba4) |> 
+  # bind_rows(data_pred_kaelin4) |> 
+  select(-dni, -fuente,   -auto_cor) |> #-tipo_doc -fallecido, -fech_fallecimiento, 
+  mutate(id = 1:n()) |> 
+  select(id, everything()) |> 
+  mutate(cas = case_when(cas == "Almenara" ~ "Lima - Almenara", 
+                         cas == "Libertad" ~ "La Libertad", 
+                         cas == "REBAGLIATI" ~ "Lima - Rebagliati", 
+                         cas == "Red Ica" ~ "Ica", 
+                         cas == "Sabogal" ~ "Lima - Sabogal",
+                         TRUE ~ cas))
+```
+
+```{r}
+datos_total |> head()
+```
+
+```{r}
+datos_total |> 
+  count(cas)
+```
+
+Recuperamos las etiquetas:
+
+```{r}
+datos_total <- datos_total |>  
+  set_variable_labels(
+    cas = "Centro de atención de salud", 
+    sex = "Sexo", 
+    male = "Sexo, masculino", 
+    age = "Edad (años)", 
+    assess_date = "Fecha de evaluación", 
+    crea = "Creatinina sérica (mg/dL)", 
+    eGFR_ckdepi = "TFG usando CKD-EPI, ml/min/1.73m2", 
+    acr = "Relación albúmina-creatinina, mg/g", 
+    urine_album = "Albúmina en orina (mg/ml)", 
+    urine_crea = "Creatinina en orina (mg/dl)", 
+    death_date = "Fecha de defunción", 
+    dial_date = "Fecha de hemodiálisis", 
+    hta = "Hipertensión", 
+    dm = "Diabetes Mellitus", 
+    risk2y = "Riesgo pronosticado de fallo renal a 2 años", 
+    risk5y = "Riesgo pronosticado de fallo renal a 5 años", 
+    pi2y = "Índice pronóstico de fallo renal a 2 años", 
+    pi5y = "Índice pronóstico de fallo renal a 5 años",     
+    grf_cat = "Categorías de TFG", 
+    acr_cat = "Categorías de albuminuria persistente", 
+    ckd_class = "Clasificación CKD KDIGO", 
+    ckd_class2 = "Clasificación CKD KDIGO",
+    ckd_stage = "Etapas de CKD", 
+    ckd_stage2 = "Etapas de CKD", 
+    status_num = "Resultado", 
+    status_num2 = "Resultado", 
+    eventd5ylab = "Resultado a 5 años", 
+    eventd2ylab = "Resultado a 2 años", 
+    eventd5y = "Resultado a 5 años", 
+    deathc = "Defunción",
+    death5y = "Defunción a 5 años", 
+    death2y = "Defunción a 2 años",
+    time_death5y = "Tiempo hasta muerte a 5 años", 
+    dialc = "Fallo renal", 
+    total = "Total", 
+    grf_cat = "Categorias de GFR", 
+    ckd_class = "Clasificación de CKD KDIGO") 
+```
+
+:::{.callout-note collapse=false appearance='default' icon=true}
+## Importante
+- No se incluyó datos del Kaelin porque el registro de muerte se basa en SINADEF y no en la data de oficina de asegurados
+:::
+
+
+## Guardar dataset final integrado
+
+```{r}
+export(datos_total, here("Data", "Tidy", "datos_total_integrados.rds"))
+export(datos_total, here("Data", "Tidy", "datos_total_integrados.xlsx"))
+export(datos_total, here("Data", "Tidy", "datos_total_integrados.dta"))
+```
+
+## Ticket de Reproducibilidad
+
+```{r}
+sessionInfo()
+```
+

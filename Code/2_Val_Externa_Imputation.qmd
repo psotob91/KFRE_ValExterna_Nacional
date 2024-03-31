@@ -1,0 +1,1620 @@
+---
+title: "1 - Analisis de Val Externa"
+author: "Percy Soto Becerra"
+format: 
+  html: 
+   toc: true
+   number-sections: true
+   df-print: paged
+   page-layout: full
+   embed-resources: true
+---
+
+# Code to reproduce results of the manuscript 'Kidney Failure Prediction: Multicenter External Validation of the KFRE Model in Patients with CKD Stages 3-4 in Peru'
+
+## Introduction 
+
+This document presents the code and results of the main analysis shown in the article.
+
+## Setup
+
+```{r}
+#| label: load-packages
+#| include: true
+
+rm(list = ls())
+
+# Use pacman to check whether packages are installed, if not load
+if (!require("pacman")) install.packages("pacman")
+library(pacman)
+
+# Unload all package to begin in a session with only base packages
+pacman::p_unload("all")
+
+# Install packages
+pacman::p_load(
+  here, 
+  skimr, 
+  survival,
+  rms,
+  cmprsk,
+  riskRegression,
+  mstate,
+  pseudo,
+  pec,
+  plotrix,
+  knitr,
+  splines,
+  kableExtra,
+  flextable,
+  gtsummary,
+  boot,
+  tidyverse,
+  rsample,
+  gridExtra,
+  webshot, 
+  patchwork,
+  survival, 
+  ggsci, 
+  cowplot, 
+  scales, 
+  patchwork, 
+  labelled, 
+  glue, 
+  dcurves, 
+  broom, 
+  downlit, 
+  xml2, 
+  gghalves, 
+  devtools, 
+  htmltools, 
+  gghalves, 
+  ggtext, 
+  DiagrammeR, 
+  gt, 
+  janitor, 
+  VIM, 
+  PerformanceAnalytics, 
+  mice, 
+  rms, 
+  naniar, 
+  DescTools, 
+  gtools, 
+  ggExtra, 
+  furrr, 
+  future, 
+  ggmice,
+  parallel
+)
+
+if (!require("impstep")) remotes::install_github("bgravesteijn/impstep", force = TRUE)
+if (!require("smplot2")) devtools::install_github('smin95/smplot2', force = TRUE)
+# You will need Rtools to install packages from Github on Windows
+# `devtools` with throw an informative error if Rtools is not found
+# if (!"devtools" %in% installed.packages()) install.packages("devtools")
+# if (!require("smplot2")) devtools::install_github("jesse-smith/futuremice")
+
+library(impstep)
+
+## Revisar:; https://amices.org/ggmice/index.html
+```
+
+## Cargar datos
+
+```{r}
+# Import data
+data_impA <- readRDS(here::here("Data", "Tidy", "data_impA.rds")) 
+imp.datosA <- complete(data_impA, action = "long", include = TRUE)
+
+# Create data for CKD 3b-4 (subset of CKD3a-4)
+imp.datosB <- imp.datosA |> 
+  filter(ckd_stage2 == "Stages 3b-4")
+data_impB <- as.mids(imp.datosB)
+data_impB$loggedEvents
+```
+
+## Cargar funciones
+
+```{r}
+source(here("Code", "source", "kfre_pi.R"))
+source(here("Code", "source", "kfre_pr.R"))
+source(here("Code", "source", "oe_ratio.R"))
+source(here("Code", "source", "calibration_intercept.R"))
+source(here("Code", "source", "calibration_slope.R"))
+source(here("Code", "source", "auc.R"))
+source(here("Code", "source", "validate.mids.R"))
+source(here("Code", "source", "pool.validate.mids.R"))
+source(here("Code", "source", "pool.auc.mids.R"))
+source(here("Code", "source", "process_imp_cal_plot.R"))
+```
+
+
+## Configurar cores para parallel processing
+
+```{r}
+n_cores <- detectCores()
+n_cores
+
+# Evaluate futures in parallel - max of two workers to avoid hogging resources
+future::plan("multisession", workers = n_cores)
+```
+
+## Pre-procesar datos
+
+```{r}
+imp.datosA <- imp.datosA |> 
+  mutate(
+    acr = exp(log_acr), 
+    urine_crea = exp(log_urine_crea), 
+    urine_album = exp(log_urine_album), 
+    peso = 1 / max(imp.datosA$.imp), 
+    acr_cat = case_when(acr < 30 ~ "A1", 
+                        acr <= 300 & acr >= 30 ~ "A2", 
+                        acr > 300 ~ "A3", 
+                        TRUE ~ as.character(NA)),
+    ckd_class = case_when(
+      grf_cat %in% c("G1", "G2") & acr_cat == "A1" ~ "Low risk", 
+      (grf_cat %in% c("G3a") & acr_cat == "A1") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A2") ~ "Moderately increased risk", 
+      (grf_cat %in% c("G3b") & acr_cat == "A1") | 
+        (grf_cat == "G3a" & acr_cat == "A2") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A3") ~ "High risk", 
+      (grf_cat %in% c("G4", "G5") & acr_cat == "A1") | 
+        (grf_cat %in% c("G3b", "G4", "G5") & acr_cat == "A2") | 
+        (grf_cat %in% c("G3a", "G3b", "G4", "G5") & acr_cat == "A3") ~ "Very high risk"
+    )) |> 
+  labelled::set_variable_labels(
+    sex = "Sexo", 
+    age = "Edad (años)", 
+    crea = "Creatinina sérica (mg/dL)", 
+    eGFR_ckdepi = "TFG usando CKD-EPI, ml/min/1.73m2", 
+    acr = "Relación albúmina-creatinina, mg/g", 
+    urine_album = "Albúmina en orina (mg/ml)", 
+    urine_crea = "Creatinina en orina (mg/dl)", 
+    hta = "Hipertensión", 
+    dm = "Diabetes Mellitus", 
+    grf_cat = "Categorías de TFG", 
+    acr_cat = "Categorías de albuminuria persistente", 
+    ckd_class = "Clasificación CKD KDIGO", 
+    eventd5ylab = "Resultado a 5 años", 
+    eventd2ylab = "Resultado a 2 años", 
+    eventd5y = "Resultado a 5 años", 
+    death5y = "Defunción a 5 años", 
+    death2y = "Defunción a 2 años")
+
+imp.datosB <- imp.datosB |> 
+  mutate(
+    acr = exp(log_acr), 
+    urine_crea = exp(log_urine_crea), 
+    urine_album = exp(log_urine_album), 
+    peso = 1 / max(imp.datosB$.imp), 
+    acr_cat = case_when(acr < 30 ~ "A1", 
+                        acr <= 300 & acr >= 30 ~ "A2", 
+                        acr > 300 ~ "A3", 
+                        TRUE ~ as.character(NA)),
+    ckd_class = case_when(
+      grf_cat %in% c("G1", "G2") & acr_cat == "A1" ~ "Low risk", 
+      (grf_cat %in% c("G3a") & acr_cat == "A1") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A2") ~ "Moderately increased risk", 
+      (grf_cat %in% c("G3b") & acr_cat == "A1") | 
+        (grf_cat == "G3a" & acr_cat == "A2") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A3") ~ "High risk", 
+      (grf_cat %in% c("G4", "G5") & acr_cat == "A1") | 
+        (grf_cat %in% c("G3b", "G4", "G5") & acr_cat == "A2") | 
+        (grf_cat %in% c("G3a", "G3b", "G4", "G5") & acr_cat == "A3") ~ "Very high risk"
+    )) |> 
+  labelled::set_variable_labels(
+    sex = "Sexo", 
+    age = "Edad (años)", 
+    crea = "Creatinina sérica (mg/dL)", 
+    eGFR_ckdepi = "TFG usando CKD-EPI, ml/min/1.73m2", 
+    acr = "Relación albúmina-creatinina, mg/g", 
+    urine_album = "Albúmina en orina (mg/ml)", 
+    urine_crea = "Creatinina en orina (mg/dl)", 
+    hta = "Hipertensión", 
+    dm = "Diabetes Mellitus", 
+    grf_cat = "Categorías de TFG", 
+    acr_cat = "Categorías de albuminuria persistente", 
+    ckd_class = "Clasificación CKD KDIGO", 
+    eventd5ylab = "Resultado a 5 años", 
+    eventd2ylab = "Resultado a 2 años", 
+    eventd5y = "Resultado a 5 años", 
+    death5y = "Defunción a 5 años", 
+    death2y = "Defunción a 2 años") 
+
+# Create data for original data
+dataA <- imp.datosA |> 
+  filter(.imp == 0)
+
+dataB <- imp.datosB |> 
+  filter(.imp == 0)
+```
+
+
+### Table 1
+
+```{r}
+# Tabla 1a
+survey::svydesign(~1, data = imp.datosA |> filter(.imp != 0), weights = ~peso) %>%
+  gtsummary::tbl_svysummary(
+    include = c(sex, age, hta, dm, acr_cat, grf_cat, ckd_class, crea,
+                eGFR_ckdepi, acr, urine_album, urine_crea,  death2y, 
+                eventd2ylab, death5y, eventd5ylab), 
+    type = list(all_continuous() ~ "continuous2", 
+                c(hta, dm) ~ "dichotomous"),
+    value = list(hta ~ "1", dm ~ "1"), 
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing"
+  ) |> 
+  bold_labels() -> tab1a
+
+survey::svydesign(~1, data = imp.datosB |> filter(.imp != 0), weights = ~peso) %>%
+  gtsummary::tbl_svysummary(
+    include = c(sex, age, hta, dm, acr_cat, grf_cat, ckd_class, crea,
+                eGFR_ckdepi, acr, urine_album, urine_crea,  death2y, 
+                eventd2ylab, death5y, eventd5ylab), 
+    type = list(all_continuous() ~ "continuous2", 
+                c(hta, dm) ~ "dichotomous"),
+    value = list(hta ~ "1", dm ~ "1"), 
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing"
+  ) |> 
+  bold_labels() -> tab1b
+
+
+tbl_merge(list(tab1a, tab1b), 
+          tab_spanner = c("**CKD Stages 3a-3b-4**", "**CKD Stages 3b-4**")) %>% 
+  modify_caption("Table 1. Baseline characteristics of the study population according CKD Stages") %>% 
+  bold_labels() -> tab1
+
+tab1 %>% 
+  as_flex_table() %>% 
+  flextable::save_as_docx(path = here("Tables/Table1_Imputed.docx"))
+
+tab1 %>% 
+  gtsummary::as_kable_extra() %>%
+  kableExtra::kable_styling("striped")
+```
+
+### Supplementary Table - Comparison between CCA and Imputed results
+
+```{r}
+# Tabla 1a
+dataA %>%
+  gtsummary::tbl_summary(
+    include = c(sex, age, hta, dm, acr_cat, grf_cat, ckd_class, crea,
+                eGFR_ckdepi, acr, urine_album, urine_crea,  death2y, 
+                eventd2ylab, death5y, eventd5ylab), 
+    type = list(all_continuous() ~ "continuous2", 
+                c(hta, dm) ~ "dichotomous"),
+    value = list(hta ~ "1", dm ~ "1"), 
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing"
+  ) |> 
+  bold_labels() -> tab1a_cca
+
+dataB %>%
+  gtsummary::tbl_summary(
+    include = c(sex, age, hta, dm, acr_cat, grf_cat, ckd_class, crea,
+                eGFR_ckdepi, acr, urine_album, urine_crea,  death2y, 
+                eventd2ylab, death5y, eventd5ylab), 
+    type = list(all_continuous() ~ "continuous2", 
+                c(hta, dm) ~ "dichotomous"),
+    value = list(hta ~ "1", dm ~ "1"), 
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing"
+  ) |> 
+  bold_labels() -> tab1b_cca
+
+
+tbl_merge(list(tab1a_cca, tab1b_cca), 
+          tab_spanner = c("**Case Complete Analysis**", "**Multiple Imputation Analysis**")) %>% 
+  modify_caption("Table S3. Baseline characteristics of the study population with CKD Stages 3a-3b-4 according type of analysis") %>% 
+  bold_labels() -> tab_sup_cca
+
+tab_sup_cca %>% 
+  as_flex_table() %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Sup_CCA.docx"))
+
+tab_sup_cca %>% 
+  gtsummary::as_kable_extra() %>%
+  kableExtra::kable_styling("striped")
+```
+
+
+## Cumulative incidence function for competing risks data
+
+Figure @fig-cif shows the cumulative incidence curves of renal failure and pre-renal failure death in the study patients.
+
+
+```{r}
+#| label: cif-1
+#| output: false
+
+# Seleccion del grupo 3a-4----
+dataA <- imp.datosA |> 
+  filter(.imp == 0)
+
+cuminc(ftime = dataA$time5y, 
+       fstatus = dataA$eventd5ylab, 
+       cencode = "Alive w/o Kidney Failure") -> cif
+
+ciplotdat <- 
+  cif %>% 
+  list_modify("Tests" = NULL) %>% 
+  map_df(`[`, c("time", "est", "var"), .id = "id") %>% 
+  mutate(id = recode(
+    id, 
+    "1 Death w/o Kidney Failure" = "Death w/o Kidney Failure", 
+    "1 Kidney Failure" = "Kidney Failure"), 
+    ll = est - 1.96 * sqrt(var), 
+    ul = est + 1.96 * sqrt(var)
+    ) %>% 
+  rename(
+    event = id
+  )
+
+ciplotdat %>% 
+  ggplot(aes(x = time, y = est)) +
+  geom_ribbon(aes(ymin = ll, ymax = ul, fill = event), 
+              alpha = 0.25, linetype = 0) + 
+  geom_step(lwd = 0.5, aes(color = event)) +
+  theme_survminer() +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) + 
+  labs(x = "Years", 
+       y = "Cumulative incidence",
+       title = "A CKD Stages 3a-3b-4") + 
+  theme(legend.position = "top",
+        legend.title = element_blank(), 
+        legend.background = element_rect(fill = "white"), 
+        legend.key.size = unit(0.2, "cm")) -> g1
+
+ciplotdat %>% 
+  filter(event == "Kidney Failure") %>%
+  ggplot(aes(x = time, y = est)) +
+  geom_ribbon(aes(ymin = ll, ymax = ul), fill = "#89E1E3", 
+              alpha = 0.1, linetype = 0) + 
+  geom_step(lwd = 0.5, color = "#89E1E3") +
+  theme_survminer() +
+  ylim(c(0, 0.15)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.15)) + 
+  labs(x = "", 
+       y = "",
+       title = "") -> g2
+
+kf_fit <- survfit(
+  Surv(time5y, ifelse(eventd5y != 0, 1, 0)) ~ 1, 
+  data = dataA
+)
+
+num <- ggsurvplot(
+  fit = kf_fit, 
+  risk.table = "nrisk_cumevents", 
+  risk.table.y.text = FALSE,
+  risk.table.y.text.col = FALSE, 
+  tables.y.text = FALSE, 
+  tables.y.text.col = FALSE, 
+  ylab = "Years",
+  risk.table.fontsize = 3.2,
+  tables.theme = theme_survminer(font.main = 10)
+  )
+
+cowplot::plot_grid(
+  g1, 
+  num$table + theme_cleantable(), 
+  nrow = 2, 
+  rel_heights = c(4, 1), 
+  align = "v", 
+  axis = "b"
+  ) -> g3
+  
+g3 + inset_element(g2, 0.15, 0.43, 1, 0.856,  align_to = 'full',  
+                   ignore_tag = TRUE) -> plot_cif_mh
+ 
+# Seleccion del grupo 3b-4----
+
+dataB <- imp.datosB |> 
+  filter(.imp == 0)
+
+cuminc(ftime = dataB$time5y, 
+       fstatus = dataB$eventd5ylab, 
+       cencode = "Alive w/o Kidney Failure") -> cif
+
+ciplotdat <- 
+  cif %>% 
+  list_modify("Tests" = NULL) %>% 
+  map_df(`[`, c("time", "est", "var"), .id = "id") %>% 
+  mutate(id = recode(
+    id, 
+    "1 Death w/o Kidney Failure" = "Death w/o Kidney Failure", 
+    "1 Kidney Failure" = "Kidney Failure"), 
+    ll = est - 1.96 * sqrt(var), 
+    ul = est + 1.96 * sqrt(var)
+    ) %>% 
+  rename(
+    event = id
+  )
+
+ciplotdat %>% 
+  ggplot(aes(x = time, y = est)) +
+  geom_ribbon(aes(ymin = ll, ymax = ul, fill = event), 
+              alpha = 0.25, linetype = 0) + 
+  geom_step(lwd = 0.5, aes(color = event)) +
+  theme_survminer() +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) + 
+  labs(x = "Years", 
+       y = "Cumulative incidence",
+       title = "B CKD Stages 3b-4") + 
+  theme(legend.position = "top",
+        legend.title = element_blank(), 
+        legend.background = element_rect(fill = "white"), 
+        legend.key.size = unit(0.2, "cm")) -> g1
+
+ciplotdat %>% 
+  filter(event == "Kidney Failure") %>%
+  ggplot(aes(x = time, y = est)) +
+  geom_ribbon(aes(ymin = ll, ymax = ul), fill = "#89E1E3", 
+              alpha = 0.1, linetype = 0) + 
+  geom_step(lwd = 0.5, color = "#89E1E3") +
+  theme_survminer() +
+  ylim(c(0, 0.30)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.30)) + 
+  labs(x = "", 
+       y = "",
+       title = "") -> g2
+
+kf_fit <- survfit(
+  Surv(time5y, ifelse(eventd5y != 0, 1, 0)) ~ 1, 
+  data = dataB
+)
+
+num <- ggsurvplot(
+  fit = kf_fit, 
+  risk.table = "nrisk_cumevents", 
+  risk.table.y.text = FALSE,
+  risk.table.y.text.col = FALSE, 
+  tables.y.text = FALSE, 
+  tables.y.text.col = FALSE, 
+  ylab = "Years",
+  risk.table.fontsize = 3.2,
+  tables.theme = theme_survminer(font.main = 10)
+  )
+
+cowplot::plot_grid(
+  g1, 
+  num$table + theme_cleantable(), 
+  nrow = 2, 
+  rel_heights = c(4, 1), 
+  align = "v", 
+  axis = "b"
+  ) -> g3
+
+g3 + inset_element(g2, 0.15, 0.51, 1, 0.856,  align_to = 'full',  
+                   ignore_tag = TRUE) -> plot_cif_vh
+
+(plot_cif_mh / plot_cif_vh) + 
+  plot_annotation(tag_levels = 'A') -> plot_cif
+
+ggsave(filename = "Plot_CIF.png", 
+      plot = plot_cif, 
+      device = "png", 
+      path = here("Figures"), 
+      dpi = 300, 
+      scale = 2, 
+      width = 8.5,
+      height = 14, 
+      units = "cm", 
+      bg = "white")
+```
+
+### Fig 2
+
+```{r}
+#| label: fig-cif
+#| fig.width: 7
+#| fig.height: 14
+#| fig-cap: "Cumulative incidence function curves for kidney failure (sky-blue line) and death before kidney failure (red line) in patients with (A) CKD stages 3a-3b-4 and (B) CKD stages 3b-4"
+knitr::include_graphics(here("Figures", "Plot_CIF.png"))
+```
+
+### Table
+
+```{r}
+# Selection of group of patients----
+# Creacion de datsets para IA a 5 y 2 años
+data_filt <- dataA |> 
+  rename(id = .id)
+
+vdata.w <- crprep(
+  Tstop = "time",
+  status = "eventd",
+  trans = c(1, 2),
+  id = "id",
+  keep = c("age", "sex", "eGFR_ckdepi", "acr"),
+  data = data_filt
+)
+
+vdata.w1 <- vdata.w %>% filter(failcode == 1)
+vdata.w2 <- vdata.w %>% filter(failcode == 2)
+
+# For kidney failure
+mfit_vdata1 <- survfit(
+  Surv(Tstart, Tstop, status == 1) ~ 1,
+  data = vdata.w1, 
+  weights = weight.cens
+)
+
+smfit_vdata1 <- summary(mfit_vdata1, times = c(1, 2, 3, 4, 5))
+
+res_ci_stg1 <- cbind(
+  100 * (1 - smfit_vdata1$surv),
+  100 * (1 - smfit_vdata1$upper),
+  100 * (1 - smfit_vdata1$lower)
+)
+
+res_ci_stg1 <- round(res_ci_stg1, 2)
+
+rownames(res_ci_stg1) <- c(
+  "1-year", "2-year",
+  "3-year", "4-year",
+  "5-year"
+)
+
+colnames(res_ci_stg1) <- c(
+  "Estimate", "Lower .95",
+  "Upper .95"
+)
+
+
+# For death without kidney failure 
+mfit_vdata2 <- survfit(
+  Surv(Tstart, Tstop, status == 2) ~ 1,
+  data = vdata.w2, 
+  weights = weight.cens
+)
+
+smfit_vdata2 <- summary(mfit_vdata2, times = c(1, 2, 3, 4, 5))
+
+res_ci_stg2 <- cbind(
+  100 * (1 - smfit_vdata2$surv),
+  100 * (1 - smfit_vdata2$upper),
+  100 * (1 - smfit_vdata2$lower)
+)
+
+res_ci_stg2 <- round(res_ci_stg2, 2)
+
+rownames(res_ci_stg2) <- c(
+  "1-year", "2-year",
+  "3-year", "4-year",
+  "5-year"
+)
+
+colnames(res_ci_stg2) <- c(
+  "Estimate", "Lower .95",
+  "Upper .95"
+)
+
+# Selection of group of patients----
+# Creation of datasets for Cumulative Incidence at 2- and 5-yearsa
+data_filt <- dataB |> 
+  rename(id = .id)
+
+vdata.w <- crprep(
+  Tstop = "time5y",
+  status = "eventd5y",
+  trans = c(1, 2),
+  id = "id",
+  keep = c("age", "sex", "eGFR_ckdepi", "acr"),
+  data = data_filt
+)
+
+vdata.w1 <- vdata.w %>% filter(failcode == 1)
+vdata.w2 <- vdata.w %>% filter(failcode == 2)
+
+# For kidney failure
+mfit_vdata3 <- survfit(
+  Surv(Tstart, Tstop, status == 1) ~ 1,
+  data = vdata.w1, 
+  weights = weight.cens
+)
+
+smfit_vdata3 <- summary(mfit_vdata3, times = c(1, 2, 3, 4, 5))
+
+res_ci_stg3 <- cbind(
+  100 * (1 - smfit_vdata3$surv),
+  100 * (1 - smfit_vdata3$upper),
+  100 * (1 - smfit_vdata3$lower)
+)
+
+res_ci_stg3 <- round(res_ci_stg3, 2)
+
+rownames(res_ci_stg3) <- c(
+  "1-year", "2-year",
+  "3-year", "4-year",
+  "5-year"
+)
+
+colnames(res_ci_stg3) <- c(
+  "Estimate", "Lower .95",
+  "Upper .95"
+)
+
+
+# For death without kidney failure 
+mfit_vdata4 <- survfit(
+  Surv(Tstart, Tstop, status == 2) ~ 1,
+  data = vdata.w2, 
+  weights = weight.cens
+)
+
+smfit_vdata4 <- summary(mfit_vdata4, times = c(1, 2, 3, 4, 5))
+
+res_ci_stg4 <- cbind(
+  100 * (1 - smfit_vdata4$surv),
+  100 * (1 - smfit_vdata4$upper),
+  100 * (1 - smfit_vdata4$lower)
+)
+
+res_ci_stg4 <- round(res_ci_stg4, 2)
+
+rownames(res_ci_stg4) <- c(
+  "1-year", "2-year",
+  "3-year", "4-year",
+  "5-year"
+)
+
+colnames(res_ci_stg4) <- c(
+  "Estimate", "Lower .95",
+  "Upper .95"
+)
+
+# Table for 3a-3b-4 CKD patients----
+res_ci <- cbind(res_ci_stg1, res_ci_stg2)
+
+res_ci %>% 
+  as_tibble(rownames = "Year") %>% 
+  mutate(
+    est1 = str_glue("{Estimate}%"), 
+    est1.ci = str_glue(" ({`Lower .95`}% to {`Upper .95`}%)"), 
+    est2 = str_glue("{V4}%"), 
+    est2.ci = str_glue(" ({V5}% to {V6}%)")
+  ) %>% 
+  select(Year, est1, est1.ci, est2, est2.ci) %>% 
+  mutate(across(everything(), ~as.character(.x))) -> res_ci2A 
+
+res_ci2A %>% 
+  flextable() %>% 
+  add_header_row(values = c("Year", "Kidney failure", "Death without kidney failure"), colwidths = c(1, 2, 2)) %>% 
+  set_header_labels(
+    est1 = "%", 
+    est1.ci = "95% CI", 
+    est2 = "%", 
+    est2.ci = "95% CI" 
+  ) %>% 
+  merge_v(j = 1, part = "header") %>% 
+  set_caption("Table S8. Cumulative incidence of kidney failure and death without kidney failure in patients with CKD stages 3a-3b-4") %>% 
+  theme_box() %>% 
+  autofit() -> tab_cif1
+
+tab_cif1 %>% 
+  save_as_docx(path = here("Tables/Table_Cumulative_Incidence.docx"))
+
+# Tabla for 3b-4----
+res_ci <- cbind(res_ci_stg3, res_ci_stg4)
+
+res_ci %>% 
+  as_tibble(rownames = "Year") %>% 
+  mutate(
+    est1 = str_glue("{Estimate}%"), 
+    est1.ci = str_glue(" ({`Lower .95`}% to {`Upper .95`}%)"), 
+    est2 = str_glue("{V4}%"), 
+    est2.ci = str_glue(" ({V5}% to {V6}%)")
+  ) %>% 
+  select(Year, est1, est1.ci, est2, est2.ci) %>% 
+  mutate(across(everything(), ~as.character(.x))) -> res_ci2B 
+
+res_ci2B %>% 
+  flextable() %>% 
+  add_header_row(values = c("Year", "Kidney failure", "Death without kidney failure"), colwidths = c(1, 2, 2)) %>% 
+  set_header_labels(
+    est1 = "%", 
+    est1.ci = "95% CI", 
+    est2 = "%", 
+    est2.ci = "95% CI" 
+  ) %>% 
+  merge_v(j = 1, part = "header") %>% 
+  set_caption("Table S9. Cumulative incidence of kidney failure and death without kidney failure in patients with CKD stages 3b-4") %>% 
+  theme_box() %>% 
+  autofit() -> tab_cif2
+
+tab_cif2 %>% 
+  save_as_docx(path = here("Tables/TableS9.docx"))
+```
+
+
+```{r}
+kable(
+  res_ci2A, 
+  caption = "Table S8. Cumulative incidence of Kidney Failure and Death w/o Kidney Failure in patients with CKD Stages 3a-3b-4", 
+  col.names = c("", "%", "CI95%", "%", "CI95%")
+  ) %>%
+  kable_styling("striped", position = "center") %>%
+  add_header_above(c(" " = 1, "Kidney Failure" = 2, "Death w/o Kidney Failure" = 2))
+```
+
+
+```{r}
+kable(
+  res_ci2B, 
+  caption = "Table S9. Cumulative incidence of Kidney Failure and Death w/o Kidney Failure in patients with CKD Stages 3b-4", 
+  col.names = c("", "%", "CI95%", "%", "CI95%")
+  ) %>%
+  kable_styling("striped", position = "center") %>%
+  add_header_above(c(" " = 1, "Kidney Failure" = 2, "Death w/o Kidney Failure" = 2))
+```
+
+
+## Predictive Performance
+
+### Calibration and Discrimination
+
+```{r}
+# Grupo 3a-3b-4 2 anios---------------------------------------------------------
+auc_measure <- validate.mids(data_impA, kfre_pr, auc, "auc", alpha = 0.05, 
+                             horizon = 2, primary_event = 1)
+cal_int_measure <- validate.mids(data_impA, kfre_pr, calibration_intercept, 
+                                 "calibration_intercept", alpha = 0.05, 
+                                 horizon = 2, primary_event = 1)
+cal_slope_measure <- validate.mids(data_impA, kfre_pr, calibration_slope, 
+                                   "calibration_slope", alpha = 0.05, 
+                                   horizon = 2, primary_event = 1)
+oe_ratio_measure <- validate.mids(data_impA, kfre_pr, oe_ratio, 
+                                   "oe_ratio", alpha = 0.05, 
+                                   horizon = 2, primary_event = 1)
+## Average predicted risk
+imp.datosA |> 
+  mutate(pred = kfre_pr(imp.datosA, 2)) |> 
+  filter(.imp != 0) |> 
+  summarise(avg_pred = mean(pred)) |> 
+  pull(avg_pred) -> avg_pred
+
+## Average observed proportion
+horizon <- 2
+primary_event <- 1
+avg_obs_imp <- rep(NA, max(imp.datosA$.imp))
+
+for (i in seq_len(max(imp.datosA$.imp))) {
+  datos_filtered <- imp.datosA |> 
+    filter(.imp == i) 
+  
+  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
+  avg_obs <- obj$pstate[, primary_event + 1]
+  avg_obs_imp[i] <- avg_obs
+}
+
+avg_obs <- mean(avg_obs_imp)
+
+## Other measures
+oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
+cal_int_res <- pool.validate.mids(cal_int_measure)
+cal_slope_res <- pool.validate.mids(cal_slope_measure)
+auc_res <- pool.validate.mids(auc_measure)
+```
+
+
+```{r}
+## Table of results
+datos_res1 <- data.frame(
+  measures = c("Average predicted risk", "Average observed proportion", 
+               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
+               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
+  estimates = c(100 * avg_pred, 100 * avg_obs, 
+                oe_ratio_res[["pooled"]][["estimate"]], 
+                cal_int_res[["pooled"]][["estimate"]], 
+                cal_slope_res[["pooled"]][["estimate"]], 
+                auc_res[["pooled"]][["estimate"]]), 
+  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
+            cal_int_res[["pooled"]][["ci.lb"]], 
+            cal_slope_res[["pooled"]][["ci.lb"]], 
+            auc_res[["pooled"]][["ci.lb"]]),
+  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
+            cal_int_res[["pooled"]][["ci.ub"]], 
+            cal_slope_res[["pooled"]][["ci.ub"]], 
+            auc_res[["pooled"]][["ci.ub"]])
+  ) |> 
+  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
+  select(measures, res)
+```
+
+
+```{r}
+# Grupo 3a-3b-4 5 anios---------------------------------------------------------
+auc_measure <- validate.mids(data_impA, kfre_pr, auc, "auc", alpha = 0.05, 
+                             horizon = 5, primary_event = 1)
+cal_int_measure <- validate.mids(data_impA, kfre_pr, calibration_intercept, 
+                                 "calibration_intercept", alpha = 0.05, 
+                                 horizon = 5, primary_event = 1)
+cal_slope_measure <- validate.mids(data_impA, kfre_pr, calibration_slope, 
+                                   "calibration_slope", alpha = 0.05, 
+                                   horizon = 5, primary_event = 1)
+oe_ratio_measure <- validate.mids(data_impA, kfre_pr, oe_ratio, 
+                                   "oe_ratio", alpha = 0.05, 
+                                   horizon = 5, primary_event = 1)
+
+## Average predicted risk
+imp.datosA |> 
+  mutate(pred = kfre_pr(imp.datosA, 5)) |> 
+  filter(.imp != 0) |> 
+  summarise(avg_pred = mean(pred)) |> 
+  pull(avg_pred) -> avg_pred
+
+## Average observed proportion
+horizon <- 5
+primary_event <- 1
+avg_obs_imp <- rep(NA, max(imp.datosA$.imp))
+
+for (i in seq_len(max(imp.datosA$.imp))) {
+  datos_filtered <- imp.datosA |> 
+    filter(.imp == i) 
+  
+  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
+  avg_obs <- obj$pstate[, primary_event + 1]
+  avg_obs_imp[i] <- avg_obs
+}
+
+avg_obs <- mean(avg_obs_imp)
+
+oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
+cal_int_res <- pool.validate.mids(cal_int_measure)
+cal_slope_res <- pool.validate.mids(cal_slope_measure)
+auc_res <- pool.validate.mids(auc_measure)
+
+datos_res2 <- data.frame(
+  measures = c("Average predicted risk", "Average observed proportion", 
+               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
+               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
+  estimates = c(100 * avg_pred, 100 * avg_obs, 
+                oe_ratio_res[["pooled"]][["estimate"]], 
+                cal_int_res[["pooled"]][["estimate"]], 
+                cal_slope_res[["pooled"]][["estimate"]], 
+                auc_res[["pooled"]][["estimate"]]), 
+  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
+                cal_int_res[["pooled"]][["ci.lb"]], 
+                cal_slope_res[["pooled"]][["ci.lb"]], 
+                auc_res[["pooled"]][["ci.lb"]]),
+  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
+                cal_int_res[["pooled"]][["ci.ub"]], 
+                cal_slope_res[["pooled"]][["ci.ub"]], 
+                auc_res[["pooled"]][["ci.ub"]])
+) |> 
+  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
+  select(measures, res)
+
+# Grupo 3b-4 2 anios---------------------------------------------------------
+auc_measure <- validate.mids(data_impB, kfre_pr, auc, "auc", alpha = 0.05, 
+                             horizon = 2, primary_event = 1)
+cal_int_measure <- validate.mids(data_impB, kfre_pr, calibration_intercept, 
+                                 "calibration_intercept", alpha = 0.05, 
+                                 horizon = 2, primary_event = 1)
+cal_slope_measure <- validate.mids(data_impB, kfre_pr, calibration_slope, 
+                                   "calibration_slope", alpha = 0.05, 
+                                   horizon = 2, primary_event = 1)
+oe_ratio_measure <- validate.mids(data_impB, kfre_pr, oe_ratio, 
+                                   "oe_ratio", alpha = 0.05, 
+                                   horizon = 2, primary_event = 1)
+
+## Average predicted risk
+imp.datosB |> 
+  mutate(pred = kfre_pr(imp.datosB, 2)) |> 
+  filter(.imp != 0) |> 
+  summarise(avg_pred = mean(pred)) |> 
+  pull(avg_pred) -> avg_pred
+
+## Average observed proportion
+horizon <- 2
+primary_event <- 1
+avg_obs_imp <- rep(NA, max(imp.datosB$.imp))
+
+for (i in seq_len(max(imp.datosB$.imp))) {
+  datos_filtered <- imp.datosB |> 
+    filter(.imp == i) 
+  
+  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
+  avg_obs <- obj$pstate[, primary_event + 1]
+  avg_obs_imp[i] <- avg_obs
+}
+
+avg_obs <- mean(avg_obs_imp)
+
+oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
+cal_int_res <- pool.validate.mids(cal_int_measure)
+cal_slope_res <- pool.validate.mids(cal_slope_measure)
+auc_res <- pool.validate.mids(auc_measure)
+
+datos_res3 <- data.frame(
+  measures = c("Average predicted risk", "Average observed proportion", 
+               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
+               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
+  estimates = c(100 * avg_pred, 100 * avg_obs, 
+                oe_ratio_res[["pooled"]][["estimate"]], 
+                cal_int_res[["pooled"]][["estimate"]], 
+                cal_slope_res[["pooled"]][["estimate"]], 
+                auc_res[["pooled"]][["estimate"]]), 
+  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
+                cal_int_res[["pooled"]][["ci.lb"]], 
+                cal_slope_res[["pooled"]][["ci.lb"]], 
+                auc_res[["pooled"]][["ci.lb"]]),
+  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
+                cal_int_res[["pooled"]][["ci.ub"]], 
+                cal_slope_res[["pooled"]][["ci.ub"]], 
+                auc_res[["pooled"]][["ci.ub"]])
+) |> 
+  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
+  select(measures, res)
+
+# Grupo 3b-4 5 anios---------------------------------------------------------
+auc_measure <- validate.mids(data_impB, kfre_pr, auc, "auc", alpha = 0.05, 
+                             horizon = 5, primary_event = 1)
+cal_int_measure <- validate.mids(data_impB, kfre_pr, calibration_intercept, 
+                                 "calibration_intercept", alpha = 0.05, 
+                                 horizon = 5, primary_event = 1)
+cal_slope_measure <- validate.mids(data_impB, kfre_pr, calibration_slope, 
+                                   "calibration_slope", alpha = 0.05, 
+                                   horizon = 5, primary_event = 1)
+oe_ratio_measure <- validate.mids(data_impB, kfre_pr, oe_ratio, 
+                                   "oe_ratio", alpha = 0.05, 
+                                   horizon = 5, primary_event = 1)
+
+
+## Average predicted risk
+imp.datosB |> 
+  mutate(pred = kfre_pr(imp.datosB, 5)) |> 
+  filter(.imp != 0) |> 
+  summarise(avg_pred = mean(pred)) |> 
+  pull(avg_pred) -> avg_pred
+
+## Average observed proportion
+horizon <- 5
+primary_event <- 1
+avg_obs_imp <- rep(NA, max(imp.datosB$.imp))
+
+for (i in seq_len(max(imp.datosB$.imp))) {
+  datos_filtered <- imp.datosB |> 
+    filter(.imp == i) 
+  
+  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
+  avg_obs <- obj$pstate[, primary_event + 1]
+  avg_obs_imp[i] <- avg_obs
+}
+
+avg_obs <- mean(avg_obs_imp)
+
+oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
+cal_int_res <- pool.validate.mids(cal_int_measure)
+cal_slope_res <- pool.validate.mids(cal_slope_measure)
+auc_res <- pool.validate.mids(auc_measure)
+
+datos_res4 <- data.frame(
+  measures = c("Average predicted risk", "Average observed proportion", 
+               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
+               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
+  estimates = c(100 * avg_pred, 100 * avg_obs, 
+                oe_ratio_res[["pooled"]][["estimate"]], 
+                cal_int_res[["pooled"]][["estimate"]], 
+                cal_slope_res[["pooled"]][["estimate"]], 
+                auc_res[["pooled"]][["estimate"]]), 
+  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
+                cal_int_res[["pooled"]][["ci.lb"]], 
+                cal_slope_res[["pooled"]][["ci.lb"]], 
+                auc_res[["pooled"]][["ci.lb"]]),
+  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
+                cal_int_res[["pooled"]][["ci.ub"]], 
+                cal_slope_res[["pooled"]][["ci.ub"]], 
+                auc_res[["pooled"]][["ci.ub"]])
+) |> 
+  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
+  select(measures, res)
+```
+
+
+```{r}
+# Tabla final
+table_perf_final <- datos_res1 |> 
+  left_join(datos_res2, by = "measures") |> 
+  left_join(datos_res3, by = "measures") |> 
+  left_join(datos_res4, by = "measures") |> 
+  mutate(grupo = c(rep("Calibration", 5), "Discrimination")) |> 
+  as_grouped_data(groups = "grupo") |> 
+  flextable::as_flextable(hide_grouplabel = TRUE) |> 
+  set_header_labels(
+    measures = "Validation aspect and performance measure", 
+    res.x = "t = 2 year", 
+    res.y = "t = 5 year", 
+    res.x.x = "t = 2 year", 
+    res.y.y = "t = 5 year" 
+  ) %>% 
+  add_header_row(
+    values = c("Validation aspect and performance measure", "CKD Stages 3a-3b-4", "CKD Stages 3b-4"), 
+    colwidths = c(1, 2, 2)
+  ) %>% 
+  merge_v(j = 1, part = "header") %>% 
+  bold(i = c(1, 7)) %>% 
+  autofit()  %>% 
+  set_caption("Table 2. Performance measures of KFRE in the external dataset of patients with CKD Stages 3a-4 and 3b-4") %>% 
+  theme_booktabs() %>%  
+  bold(bold = TRUE, part = "header") 
+
+table_perf_final %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Imputed_Performance.docx"))
+
+table_perf_final
+```
+
+
+#### Moderate calibration: Calibration curves lowess based on pseudovalues
+
+```{r}
+#| label: rcs-pseudo
+#| 
+primary_event <- 1
+
+
+# Seleccion del grupo: Stages 3-4----
+# A 2 años----
+horizon <- 2
+
+vdata <- imp.datosA %>% 
+  mutate(risk2y = kfre_pr(imp.datosA, horizon = 2), 
+         risk5y = kfre_pr(imp.datosA, horizon = 5)) |> 
+  # filter(.imp != 0) |> 
+  select(.imp, .id, risk2y, risk5y, time5y, eventd5y, time, eventd) |> 
+  mutate(pred = risk2y) |> 
+  select(.imp, .id, time, eventd, pred) |> 
+  mutate(cll_pred = log(-log(1 - pred)))
+```
+
+
+```{r}
+# Calibration plot (pseudo-obs approach) ----------------------------------
+# First compute riskRegression::Score()
+# Ejecutar la función en paralelo para cada grupo de imputación
+pseudos_list <- future_map(0:max(vdata$.imp), process_imp_cal_plot, 
+                           vdata = vdata, 
+                           primary_event = primary_event, 
+                           horizon = horizon, 
+                           .options = furrr_options(seed = 123, 
+                                                    packages = c("riskRegression", 
+                                                                 "survival")))
+
+# Combinar los resultados en un solo data frame
+pseudos <- bind_rows(pseudos_list)
+
+pseudos <- pseudos |> 
+  arrange(risk)
+# pseudos <- pseudos[order(pseudos$risk), ]
+
+# pseudos.imp <- as.mids(pseudos)
+
+# # impute & analyse as usual
+# fit <- with(pseudos.imp,  lm(pseudovalue ~ rcs(risk)))
+# 
+# pool(fit)
+# 
+# summary(fit)
+# 
+# pseudo_vals <- predict.mira(fit, pseudos.imp) |> 
+#   mutate(deciles_risk = quantcut(risk, seq(0, 1, by = 0.1))) |> 
+#   group_by(deciles_risk) |> 
+#   mutate(risk_dec = mean(risk), 
+#          obs_dec = mean(obs)) |> 
+#   ungroup()
+```
+
+
+```{r}
+# Use linear loess (weighted local regression with polynomial degree = 1) smoothing
+# smooth_pseudos <- predict(
+#   stats::loess(pseudovalue ~ risk, data = pseudos, degree = 1, span = 0.33), 
+#   se = FALSE
+# )
+```
+
+```{r}
+pseudos_list <- future_map(0:max(vdata$.imp),
+                           process_imp_cal_plot, 
+                           vdata = vdata, 
+                           primary_event = primary_event, 
+                           horizon = horizon, 
+                           type = "pseudoval_loess", 
+                           .options = furrr_options(seed = 123, 
+                                                    packages = c("riskRegression", 
+                                                                 "survival", 
+                                                                 "tidyverse")), 
+                           .progress = TRUE)
+```
+
+```{r}
+vdata2 <- vdata |> 
+  filter(.imp <= 8)
+```
+
+
+```{r}
+tic()
+subdist_list <- future_map(1:max(vdata2$.imp),
+                           process_imp_cal_plot, 
+                           vdata = vdata2, 
+                           primary_event = primary_event, 
+                           horizon = horizon, 
+                           type = "subdist_hazard", 
+                           n_internal_knots = 5,
+                           .options = furrr_options(seed = 123, 
+                                                    packages = c("riskRegression", 
+                                                                 "survival", 
+                                                                 "splines", 
+                                                                 "cmprsk",
+                                                                 "tidyverse")), 
+                           .progress = TRUE)
+toc()
+```
+
+
+```{r}
+pseudos_imp <- pseudos |> 
+  filter(.imp != 0) |> 
+  mutate(deciles_risk = quantcut(risk, seq(0, 1, by = 0.1))) |> 
+  group_by(deciles_risk) |>
+  mutate(risk_dec = mean(risk)) |>
+  ungroup()
+```
+
+
+
+```{r}
+fit_smooth_pseudos <- lm(pseudovalue ~ ns(risk, df = 5 + 1), data = pseudos_imp)
+
+smooth_pseudos <- predict(fit_smooth_pseudos)
+
+pseudo_vals <- data.frame(
+  obs = smooth_pseudos, 
+  risk = pseudos_imp$risk, 
+  deciles_risk = pseudos_imp$deciles_risk,
+  risk_dec = pseudos_imp$risk_dec
+  ) |> 
+  group_by(deciles_risk) |>
+  mutate(obs_dec = mean(obs)) |>
+  ungroup()
+```
+
+```{r}
+fit_smooth_pseudos2 <- lm(pseudovalue ~ bs(risk), data = pseudos_imp)
+
+smooth_pseudos <- predict(fit_smooth_pseudos2)
+
+pseudo_vals2 <- data.frame(
+  obs = smooth_pseudos, 
+  risk = pseudos_imp$risk, 
+  deciles_risk = pseudos_imp$deciles_risk,
+  risk_dec = pseudos_imp$risk_dec
+  ) |> 
+  group_by(deciles_risk) |>
+  mutate(obs_dec = mean(obs)) |>
+  ungroup()
+```
+
+```{r}
+fit_smooth_pseudos2 <- mfp(pseudovalue ~ bs(risk), data = pseudos_imp)
+
+smooth_pseudos <- predict(fit_smooth_pseudos2)
+
+pseudo_vals2 <- data.frame(
+  obs = smooth_pseudos, 
+  risk = pseudos_imp$risk, 
+  deciles_risk = pseudos_imp$deciles_risk,
+  risk_dec = pseudos_imp$risk_dec
+  ) |> 
+  group_by(deciles_risk) |>
+  mutate(obs_dec = mean(obs)) |>
+  ungroup()
+```
+
+```{r}
+pseudo_vals %>% 
+  ggplot(aes(x = risk, y = obs)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  # geom_point(aes(x = risk, y = obs), size = 0.01, alpha = 0) + 
+  # scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  # scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  theme_bw() + 
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions") + 
+  coord_fixed(ratio = 1, expand = TRUE) + 
+  geom_point(aes(x = risk_dec, y = obs_dec), shape = 23, stroke = 1,
+             fill = "gold") -> p1
+
+# ggMarginal(p1, type = "histogram", fill = "purple") -> p1a
+
+p1
+```
+
+```{r}
+pseudo_vals2 %>% 
+  ggplot(aes(x = risk, y = obs)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  # geom_point(aes(x = risk, y = obs), size = 0.01, alpha = 0) + 
+  # scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  # scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  theme_bw() + 
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions") + 
+  coord_fixed(ratio = 1, expand = TRUE)  +  
+  geom_point(aes(x = risk_dec, y = obs_dec), shape = 23, stroke = 1,
+             fill = "gold") -> p1
+
+# ggMarginal(p1, type = "histogram", fill = "purple") -> p1a
+
+p1
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+pseudos_imp |> 
+  ggplot(aes(x = risk)) +
+  geom_histogram()
+```
+
+```{r}
+pseudos_imp |> 
+  ggplot(aes(x = risk)) +
+  geom_boxplot()
+```
+
+```{r}
+summary(pseudos_imp$risk)
+```
+
+
+```{r}
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+pred <- as.matrix(vdata$pred)
+
+# Calibration plot (pseudo-obs approach) ----------------------------------
+# First compute riskRegression::Score()
+score_vdata <- Score(
+  list("csh_validation" = pred),
+  formula = Hist(time, eventd) ~ 1,
+  cens.model = "km",
+  data = vdata,
+  conf.int = TRUE,
+  times = horizon,
+  #  metrics = c("auc", "brier"),
+  summary = c("ipa"),
+  cause = primary_event,
+  plots = "calibration"
+)
+
+# Use pseudo-observations calculated by Score() (can alternatively use pseudo::pseudoci)
+pseudos <- data.frame(score_vdata$Calibration$plotframe) |> 
+  mutate(.id = as.integer(rep(1:length(unique(vdata$.id)), times = max(vdata$.imp))), 
+         .imp = as.integer(rep(c(1:max(vdata$.imp)), each = length(unique(vdata$.id))))) |> 
+  select(.imp, .id, everything())
+
+pseudos0 <- pseudos |> 
+  filter(.imp == 1) |> 
+  mutate(.imp = 0)
+
+pseudos <- pseudos0 |> 
+  bind_rows(pseudos)  |> 
+  arrange(.imp, .id)
+
+# pseudos <- pseudos[order(pseudos$risk), ]
+
+pseudos.imp <- as.mids(pseudos)
+
+# impute & analyse as usual
+fit <- with(pseudos.imp,  lm(pseudovalue ~ rcs(risk, nknots = 5)))
+
+pseudo_vals <- predict.mira(fit, pseudos.imp) |> 
+  mutate(deciles_risk = quantcut(risk, seq(0, 1, by = 0.1))) |> 
+  group_by(deciles_risk) |> 
+  mutate(risk_dec = mean(risk), 
+         obs_dec = mean(obs)) |> 
+  ungroup()
+
+pseudo_vals %>% 
+  ggplot() +
+  geom_ribbon(aes(x = risk, y = obs, ymin = ll, ymax = ul), fill = "purple", alpha = 0.1) + 
+  geom_line(aes(x = risk, y = obs)) + 
+  geom_point(aes(x = risk, y = obs), size = 0.01, alpha = 0) + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  theme_bw() + 
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions") + 
+  coord_fixed(ratio = 1, expand = TRUE)  + 
+  geom_point(aes(x = risk_dec, y = obs_dec), shape = 23, stroke = 1, 
+             fill = "gold") -> p2
+
+ggMarginal(p1, type = "histogram", fill = "purple") -> p2a
+
+
+
+# Seleccion del grupo: Stages 3b-4----
+vdata <- imp.datosB |>  
+  mutate(risk2y = kfre_pr(imp.datosB, horizon = 2), 
+         risk5y = kfre_pr(imp.datosB, horizon = 5)) |> 
+  filter(.imp != 0) |> 
+  select(.imp, .id, risk2y, risk5y, time5y, eventd5y, time, eventd) 
+
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+pred <- as.matrix(vdata$pred)
+
+# Calibration plot (pseudo-obs approach) ----------------------------------
+# First compute riskRegression::Score()
+score_vdata <- Score(
+  list("csh_validation" = pred),
+  formula = Hist(time, eventd) ~ 1,
+  cens.model = "km",
+  data = vdata,
+  conf.int = TRUE,
+  times = horizon,
+  #  metrics = c("auc", "brier"),
+  summary = c("ipa"),
+  cause = primary_event,
+  plots = "calibration"
+)
+
+# Use pseudo-observations calculated by Score() (can alternatively use pseudo::pseudoci)
+pseudos <- data.frame(score_vdata$Calibration$plotframe) |> 
+  mutate(.id = as.integer(rep(unique(vdata$.id), times = max(vdata$.imp))), 
+         .imp = as.integer(rep(c(1:max(vdata$.imp)), each = length(unique(vdata$.id))))) |> 
+  select(.imp, .id, everything())
+
+pseudos0 <- pseudos |> 
+  filter(.imp == 1) |> 
+  mutate(.imp = 0)
+
+pseudos <- pseudos0 |> 
+  bind_rows(pseudos)  |> 
+  arrange(.imp, .id)
+
+# pseudos <- pseudos[order(pseudos$risk), ]
+
+pseudos.imp <- as.mids(pseudos)
+
+# impute & analyse as usual
+fit <- with(pseudos.imp,  lm(pseudovalue ~ rcs(risk, nknots = 5)))
+
+pseudo_vals <- predict.mira(fit, pseudos.imp) |> 
+  mutate(deciles_risk = quantcut(risk, seq(0, 1, by = 0.1))) |> 
+  group_by(deciles_risk) |> 
+  mutate(risk_dec = mean(risk), 
+         obs_dec = mean(obs)) |> 
+  ungroup()
+
+pseudo_vals %>% 
+  ggplot() +
+  geom_ribbon(aes(x = risk, y = obs, ymin = ll, ymax = ul), fill = "purple", alpha = 0.1) + 
+  geom_line(aes(x = risk, y = obs)) + 
+  geom_point(aes(x = risk, y = obs), size = 0.01, alpha = 0) + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  theme_bw() + 
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions") + 
+  coord_fixed(ratio = 1, expand = TRUE)  + 
+  geom_point(aes(x = risk_dec, y = obs_dec), shape = 23, stroke = 1, 
+             fill = "gold") -> p3
+
+ggMarginal(p1, type = "histogram", fill = "purple") -> p3a
+
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+pred <- as.matrix(vdata$pred)
+
+# Calibration plot (pseudo-obs approach) ----------------------------------
+# First compute riskRegression::Score()
+score_vdata <- Score(
+  list("csh_validation" = pred),
+  formula = Hist(time, eventd) ~ 1,
+  cens.model = "km",
+  data = vdata,
+  conf.int = TRUE,
+  times = horizon,
+  #  metrics = c("auc", "brier"),
+  summary = c("ipa"),
+  cause = primary_event,
+  plots = "calibration"
+)
+
+# Use pseudo-observations calculated by Score() (can alternatively use pseudo::pseudoci)
+pseudos <- data.frame(score_vdata$Calibration$plotframe) |> 
+  mutate(.id = as.integer(rep(unique(vdata$.id), times = max(vdata$.imp))), 
+         .imp = as.integer(rep(c(1:max(vdata$.imp)), each = length(unique(vdata$.id))))) |> 
+  select(.imp, .id, everything())
+
+pseudos0 <- pseudos |> 
+  filter(.imp == 1) |> 
+  mutate(.imp = 0)
+
+pseudos <- pseudos0 |> 
+  bind_rows(pseudos)  |> 
+  arrange(.imp, .id)
+
+# pseudos <- pseudos[order(pseudos$risk), ]
+
+pseudos.imp <- as.mids(pseudos)
+
+# impute & analyse as usual
+fit <- with(pseudos.imp,  lm(pseudovalue ~ rcs(risk, nknots = 5)))
+
+pseudo_vals <- predict.mira(fit, pseudos.imp) |> 
+  mutate(deciles_risk = quantcut(risk, seq(0, 1, by = 0.1))) |> 
+  group_by(deciles_risk) |> 
+  mutate(risk_dec = mean(risk), 
+         obs_dec = mean(obs)) |> 
+  ungroup()
+
+pseudo_vals %>% 
+  ggplot() +
+  geom_ribbon(aes(x = risk, y = obs, ymin = ll, ymax = ul), fill = "purple", alpha = 0.1) + 
+  geom_line(aes(x = risk, y = obs)) + 
+  geom_point(aes(x = risk, y = obs), size = 0.01, alpha = 0) + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  theme_bw() + 
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions") + 
+  coord_fixed(ratio = 1, expand = TRUE)  + 
+  geom_point(aes(x = risk_dec, y = obs_dec), shape = 23, stroke = 1, 
+             fill = "gold") -> p4
+
+ggMarginal(p1, type = "histogram", fill = "purple") -> p4a
+
+```
+
+
+```{r}
+plot_calibration <- (wrap_elements(p1a) | wrap_elements(p2a)) / (wrap_elements(p3a) | wrap_elements(p4a))
+
+plot_calibration
+```
+
+
+```{r}
+p1a <- p1 + 
+  labs(title = "CKD Stages 3a-3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+p2a <- p2 + labs(title = "CKD Stages 3a-3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+p3a <- p3 + labs(title = "CKD Stages 3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+p4a <- p4 + labs(title = "CKD Stages 3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+(p1a | p2a) / (p3a | p4a) + plot_annotation(tag_levels = 'A') -> plot_calibration
+
+ggsave(filename = "Plot_Calibration_imputed.png", 
+       device = "png", 
+       plot = plot_calibration, 
+       path = here("Figures"), 
+       scale = 2, 
+       width = 2100, 
+       height = 2100,
+       units = "px", 
+       dpi = 300)
+```
+
+### Fig 3
+
+```{r}
+#| label: fig-loess-pseudo-ggpplot
+#| fig.width: 7
+#| fig.height: 7
+#| fig.align: center
+#| fig-cap: "Calibration curves for each group and prediction horizon"
+knitr::include_graphics(here("Figures", "Plot_Calibration_imputed.png"))
+```
+
+
+## Supplementary tables
+
+### Table S1 {#sec-tableS1}
+
+Ecuaciones originales
+
+```{r}
+table_kfre <- data.frame(
+  pred = c("2-years", "5-years"), 
+  eq = c("$1-{0.9832}^{e^{(-0.2201\times(\frac{age}{10}-7.036)+0.2467\times(male-0.5642)-0.5567\times(\frac{eGFR}{5}-7.222)+0.4510\times(log{(ACR)}-5.137))}}$", 
+         "$1-{0.9365}^{e^{(-0.2201\times(\frac{age}{10}-7.036)+0.2467\times(male-0.5642)-0.5567\times(\frac{eGFR}{5}-7.222)+0.4510\times(log{(ACR)}-5.137))}}$")
+)
+```
+
+
+```{r}
+#| results: asis
+knitr::kable(table_kfre, escape = TRUE, 
+             col.names = c("Prediction horizons", 
+                           "Original regional equation calibrated for predicted risk of kidney failure"), 
+             caption = "Table S1. KFRE equations externally validated by the study")
+```
+
+
+### Table S2 {#sec-tableS2}
+
+```{r}
+table_coding <- data.frame(
+  Variable = c("age", "male", "eGFR_ckdepi", "acr"), 
+  Coding = c("integer number that indicates the age in completed years", 
+             "1 = male; 0 = female", 
+             "estimated glomerular filtration rate obtained by CKD-EPI formula in $ml/min/1.73m^2$", 
+             "albumin-to-creatinine ratio in mg/g")
+)
+```
+
+
+```{r}
+#| results: asis
+knitr::kable(table_coding, escape = TRUE, 
+             caption = "Table S2. Coding of variables")
+```
+
+## Ticket de Reprocubilidad
+
+```{r}
+#| label: repro_ticket
+#| column: page
+#| echo: true
+sessionInfo()
+```
+
