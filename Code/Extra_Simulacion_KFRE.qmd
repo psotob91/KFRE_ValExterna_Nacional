@@ -1,0 +1,116 @@
+---
+title: "Simulacion para comparar ecuaciones originales y recalibradas"
+author: "Percy Soto Becerra"
+format: 
+  html:
+   theme: cerulean
+   toc: true
+   number-sections: true
+   df-print: paged
+   page-layout: full
+   embed-resources: true
+   code-fold: true
+execute: 
+  warning: false
+  message: false
+---
+
+```{r}
+#| echo: false
+library(tidyverse)
+library(here)
+library(knitr)
+library(kableExtra)
+```
+
+## Ecuaciones de KFRE
+
+### Ecuación original 
+
+El estudio original que desarrolla la ecuación se puede encontrar en este [enlace](https://jamanetwork.com/journals/jama/article-abstract/897102). El material suplementario se puede encontrar en este [enlace](https://cdn.jamanetwork.com/ama/content_public/journal/jama/20325/jwe15026_04_20_2011.pdf?Expires=1714961353&Signature=MUStwJAy7nIXmuYqFEJNkbYikuNg2UcdUsb2joc-fQlpKUtoNe8gAEHagvaDjrHLrGS2mo4tk4aZ9x66GxQi~I44DdC9Vz6E9q6zitwe7Rs~LBWl4o5cHfZ6V2jnWgFDXLk9VV7a6CPEggXe6a3rUDO5qPTzDQDl3JE2JQb8hYw3W3HwG4fyyoHMxq-4k8FV4gO6yZ1613xfKwxR7Y8WqrOPXvryGZItuys48Xb6wZTWQ4uY1uUT7mybeRcRQRQ0DD2l8yLJ6aG0BAVNRSfXc-LIpG26Wi521BXNpagov8lkZ0FpOnP3yhmskW-xiavUHMT-NLJAzsjNcXWb3l4fkQ__&Key-Pair-Id=APKAIE5G5CRDK6RD3PGA) 
+
+El estudio incluyó a 3449 participantes en la cohorte de desarrollo del modelo y 4942 para la validación externa de este. Para el desarrollo del modelo, solo incluyeron variables con <30% de datos perdidos. Los datos perdidos fueron imputados don técncas de imputación múltiples (5 imputaciones). 
+
+La ecuación final para KFRE 4-variables que quedó fue la del modelo 3. Las ecuaciones fueron las siguientes:
+
+
+**2 años:**
+
+>$1-0.9750^{e^{-0.2201\times (age/10 - 7.036) + 0.2467 \times (male - 0.5642) - 0.5567 \times (eGFR/5 - 7.222) + 0.4510 \times (log(ACR) - 5.137)}}$
+
+**5 años:**
+
+>$1-0.9240^{e^{-0.2201\times (age/10 - 7.036) + 0.2467 \times (male - 0.5642) - 0.5567 \times (eGFR/5 - 7.222) + 0.4510 \times (log(ACR) - 5.137)}}$
+
+### Ecuación recalibrada para no Norteamérica 
+
+La ecuación fue recalibrada años después, luego de que una validación externa multipaís encontrará evidencia de descalibración para la población No Norteamericana. El estudio que recalibra KFRE se puede encontrar en este [enlace](https://jamanetwork.com/journals/jama/fullarticle/2481005) y el material suplementario en este [enlace](https://cdn.jamanetwork.com/ama/content_public/journal/jama/934847/joi150162supp1_prod.pdf?Expires=1714961382&Signature=JWYosuUlyQO7PE~5j4bOFwixEMcOH621d5r5vseQxak7oTEbX8GQAALZTiBXNALekKz-sW1S8kOTe05JdA7HgRra6Ct-18WikY4woIdsi~zSOS5yu1EmkpC0vYoInGOMAFFtUIfuqXvktL3XeEXuKmUUPSYpVUsAY1f79T0AKrCrZEMjJvueDx0nt1eFjPQ3BrO1T-NQBGVpdVuNTWPNMmu9G~mKOTsFiP~-ZOrsUYFm51DsIVixj0e6BjDZWWoK8awkPMkilaFM00Cu0X~w~zlmjukmary04Er23Sv6UVQgBHIIlrhJxtgSNVLuqI32NpeVZMFAq-GsLT~F834Ypw__&Key-Pair-Id=APKAIE5G5CRDK6RD3PGA). 
+
+Este estudio incluyó 31 cohortes con 721 357 participantes de más de 30 países a lo largo de 4 continentes. Las cohortes fueron enroladas entre 1982 y 2014. La proporción de datos perdidos se limitó a la variable ACR y varió entre  0.3% y 91%. Todos los datos perdidos para ACR fueron imputados e incluidos en el análisis. La tabla siguiente muestra el % de datos perdidos, la cual puede encontrarse en la página 7 del [material suplementario]((https://jamanetwork.com/journals/jama/fullarticle/2481005)) del [artículo](https://cdn.jamanetwork.com/ama/content_public/journal/jama/934847/joi150162supp1_prod.pdf?Expires=1714961382&Signature=JWYosuUlyQO7PE~5j4bOFwixEMcOH621d5r5vseQxak7oTEbX8GQAALZTiBXNALekKz-sW1S8kOTe05JdA7HgRra6Ct-18WikY4woIdsi~zSOS5yu1EmkpC0vYoInGOMAFFtUIfuqXvktL3XeEXuKmUUPSYpVUsAY1f79T0AKrCrZEMjJvueDx0nt1eFjPQ3BrO1T-NQBGVpdVuNTWPNMmu9G~mKOTsFiP~-ZOrsUYFm51DsIVixj0e6BjDZWWoK8awkPMkilaFM00Cu0X~w~zlmjukmary04Er23Sv6UVQgBHIIlrhJxtgSNVLuqI32NpeVZMFAq-GsLT~F834Ypw__&Key-Pair-Id=APKAIE5G5CRDK6RD3PGA) de recalibración. 
+
+```{r}
+#| echo: false
+#| fig-align: center
+#| out-width: 80%
+knitr::include_graphics(here("Figures", "Simulacion", "recal_mundial_missing.png"))
+```
+
+Las ecuaciones recalibradas para poblacion No Norteamearica para KFRE 4 variables se encuentran en la página 9 del [material suplementario]((https://jamanetwork.com/journals/jama/fullarticle/2481005)) del [artículo](https://cdn.jamanetwork.com/ama/content_public/journal/jama/934847/joi150162supp1_prod.pdf?Expires=1714961382&Signature=JWYosuUlyQO7PE~5j4bOFwixEMcOH621d5r5vseQxak7oTEbX8GQAALZTiBXNALekKz-sW1S8kOTe05JdA7HgRra6Ct-18WikY4woIdsi~zSOS5yu1EmkpC0vYoInGOMAFFtUIfuqXvktL3XeEXuKmUUPSYpVUsAY1f79T0AKrCrZEMjJvueDx0nt1eFjPQ3BrO1T-NQBGVpdVuNTWPNMmu9G~mKOTsFiP~-ZOrsUYFm51DsIVixj0e6BjDZWWoK8awkPMkilaFM00Cu0X~w~zlmjukmary04Er23Sv6UVQgBHIIlrhJxtgSNVLuqI32NpeVZMFAq-GsLT~F834Ypw__&Key-Pair-Id=APKAIE5G5CRDK6RD3PGA) de recalibración. Son las siguientes:
+
+**2 años:**
+
+>$1-0.9832^{e^{-0.2201\times (age/10 - 7.036) + 0.2467 \times (male - 0.5642) - 0.5567 \times (eGFR/5 - 7.222) + 0.4510 \times (log(ACR) - 5.137)}}$
+
+**5 años:**
+
+>$1-0.9365^{e^{-0.2201\times (age/10 - 7.036) + 0.2467 \times (male - 0.5642) - 0.5567 \times (eGFR/5 - 7.222) + 0.4510 \times (log(ACR) - 5.137)}}$
+
+Esto significa que el riesgo basal de 2.5% tuvo que multiplicarse por un factor que lo redujo en 32.9% de este para que sea 1.68% para el modelo a 2 años. Igualmente, para el modelo a 5 años, se tuvo que reducir el riesgo basal por un factor que lo redujera en 16.5% para que pase de 7.6% a 6.35%.
+
+## Impacto de recalibración
+
+Veamos el impacto que tuvo la recalibración del modelo original en las probabilidades predichas de los individuos. Usaremos el ejemplo que el mismo Tangri plantea en su artículo de desarrollo del modelo original (Tabla 4) ([enlace aquí](https://jamanetwork.com/journals/jama/article-abstract/897102)). Asimismo, hemos agregado un par de pacientes ejemplos adicionales.
+
+\
+
+```{r}
+#| echo: false
+#| fig-align: center
+#| out-width: 50%
+knitr::include_graphics(here("Figures", "Simulacion", "tabla_predicted_prob_original_kfre.png"))
+```
+
+```{r}
+datos  <- data.frame(
+  id = c("Paciente A", "Paciente B", "Paciente C", "Paciente D"), 
+  age = c(70, 50, 50, 80), 
+  sex = c("Masculino", "Masculino"), 
+  eGFR_ckdepi = c(30, 30, 18, 16), 
+  acr = c(200, 50, 10, 10)
+  ) |> 
+  mutate(log_acr = log(acr))
+
+source(here("Code", "source", "kfre_pi.R"))
+source(here("Code", "source", "kfre_pr.R"))
+source(here("Code", "source", "kfre_pr_orig.R"))
+
+datos <- datos |> 
+  mutate(
+    pred2y_orig = round(100 * kfre_pr_orig(datos, 2), 1), 
+    pred2y_recal = round(100 * kfre_pr(datos, 2), 1),  
+    pred5y_orig = round(100 * kfre_pr_orig(datos, 5), 1), 
+    pred5y_recal = round(100 * kfre_pr(datos, 5), 1)
+  )
+
+datos |> 
+  kbl(col.names = c("id", "age", "sex", "eGFR", "ACR", "log(ACR)", 
+                    "Original", "Recalibrado", 
+                    "Original", "Recalibrado")) |>   
+  add_header_above(c(" " = 1, "Variables" = 5, 
+                     "Prob. a 2 años (%)" = 2, 
+                     "Prob. a 5 años (%)" = 2)) |> 
+  kable_classic(full_width = TRUE, html_font = "Cambria") 
+
+```
+
+

@@ -21,7 +21,7 @@ recal.risk.basal <- function(data, horizon) {
                           confint = TRUE, 
                           se = TRUE)
     
-    fc.aj.risk.basal[i] <- as.vector(p1)
+    fc.aj.risk.basal[i] <- p1
   }
   
   return(list(fc.aj.risk.basal.imp = fc.aj.risk.basal, 

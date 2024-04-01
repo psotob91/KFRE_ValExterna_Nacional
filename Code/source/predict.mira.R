@@ -19,19 +19,19 @@ predict.mira <- function(fit, data) {
   
   pred <- as.data.frame(pred)
   
-  risk <- data |> 
-    mice::complete(action = "long", include = FALSE) |> 
-    group_by(.id) |> 
-    summarise(risk = mean(risk)) |> 
+  risk <- data |>
+    mice::complete(action = "long", include = FALSE) |>
+    group_by(.id) |>
+    summarise(risk = mean(risk)) |>
     ungroup()
-  
-  pseudo_vals <- pred |> 
-    bind_cols(risk) |> 
+
+  df_results <- pred |>
+    bind_cols(risk) |>
     mutate(
-      ll = pmax(obs - qt(0.975, df) * se.obs, 0), 
-      ul = pmin(obs + qt(0.975, df) * se.obs, 1)
+      ll.obs = pmax(obs - qt(0.975, df) * se.obs, 0),
+      ul.obs = pmin(obs + qt(0.975, df) * se.obs, 1)
     )
-  
-  return(pseudo_vals)
+
+  return(df_results)
   
 }

@@ -17,6 +17,18 @@ if (!require("pacman")) {
   install.packages("pacman")
 }
 
+pacman::p_unload(all)
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+if (!require("survcomp")) 
+  BiocManager::install("survcomp")
+
+if (!require("pacman")) {
+  install.packages("pacman")
+}
+
 pacman::p_load(
   here,
   tidyverse,
@@ -25,11 +37,11 @@ pacman::p_load(
   janitor, 
   naniar, 
   summarytools, 
-  labelled
+  labelled, 
+  survcomp
 )
-
-library(survcomp)
 ```
+
 
 ## Importar datos
 

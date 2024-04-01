@@ -1,0 +1,257 @@
+---
+title: "5 - Recalibracion de KFRE original en datos imputados"
+author: "Percy Soto Becerra"
+format: 
+  html: 
+   toc: true
+   number-sections: true
+   df-print: paged
+   page-layout: full
+   embed-resources: true
+execute: 
+  warning: false
+---
+
+## Introduction 
+
+This document presents the code and results of the main analysis shown in the article.
+
+https://github.com/BRCLeicesterData/KFRE
+
+## Setup
+
+```{r}
+#| label: load-packages
+#| include: true
+
+rm(list = ls())
+
+# Load libraries and data ---
+
+# Libraries ----
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(qwraps2)
+options(qwraps2_markup = "markdown")
+library(survival)
+library(survminer)
+library(riskRegression)
+library(grid)
+library(gridExtra)
+library(geepack)
+library(kableExtra)
+library(boot)
+library(Hmisc)
+library(pseudo)
+library(pec)
+library(margins)
+library(rms)
+library(lmtest)
+library(pmsampsize)
+
+pacman::p_load(
+  here, 
+  skimr, 
+  survival,
+  rms,
+  cmprsk,
+  riskRegression,
+  mstate,
+  pseudo,
+  pec,
+  riskRegression,
+  plotrix,
+  knitr,
+  splines,
+  kableExtra,
+  flextable,
+  gtsummary,
+  boot,
+  tidyverse,
+  rsample,
+  gridExtra,
+  webshot, 
+  patchwork,
+  survival, 
+  cmprsk, 
+  survminer, 
+  ggsci, 
+  cowplot, 
+  scales, 
+  patchwork, 
+  labelled, 
+  glue, 
+  dcurves, 
+  broom, 
+  downlit, 
+  xml2, 
+  gghalves, 
+  devtools, 
+  htmltools, 
+  gghalves, 
+  ggtext, 
+  DiagrammeR, 
+  gt, 
+  janitor, 
+  VIM, 
+  PerformanceAnalytics, 
+  mice, 
+  rms, 
+  naniar, 
+  DescTools
+)
+
+
+
+if (!require("smplot2")) devtools::install_github('smin95/smplot2', force = TRUE)
+```
+
+#### Funciones
+
+```{r}
+source(here("Code", "source", "kfre_pi.R"))
+source(here("Code", "source", "kfre_pr.R"))
+source(here("Code", "source", "recal.risk.basal.R"))
+source(here("Code", "source", "kfre_pr.risk.basal.R"))
+source(here("Code", "source", "recal.risk.coef.R"))
+source(here("Code", "source", "kfre_pi.coef.R"))
+source(here("Code", "source", "recal.risk.basal.csh.R"))
+source(here("Code", "source", "kfre_pr.risk.basal.csh.R"))
+source(here("Code", "source", "recal.risk.coef.csh.R"))
+source(here("Code", "source", "kfre_pr.risk.coef.csh.R"))
+source(here("Code", "source", "kfre_pi.coef.csh.R"))
+```
+
+
+## Datos
+
+
+```{r}
+# Import data
+dataA.imp <- readRDS(here::here("Data", "Tidy", "data_impA.rds")) 
+
+dataA <- complete(dataA.imp, action = "long", include = TRUE)
+
+dataA <- dataA |> 
+  mutate(beta.sum = kfre_pi(dataA), 
+         eventb5y = case_when(
+           eventd5y %in% c(0, 2) ~ 0, 
+           eventd5y %in% c(1)  ~ 1, 
+           TRUE ~ as.numeric(NA)
+         ))
+
+# dataA.imp <- as.mids(dataA)
+# dataA.imp$loggedEvents
+```
+
+## Reestimar riesgo basal usando Cox:
+
+Bajo este enfoque de recalibración, solo reestimaremos el riesgo basal: 
+
+```{r}
+p5y <- recal.risk.basal(dataA, 5)
+p5y
+```
+
+```{r}
+p2y <- recal.risk.basal(dataA, 2)
+p2y
+```
+
+El nuevo factor para recalcular el riesgo  basal (recalibrado) a 5 anios es el siguiente `r p5y$fc.aj.risk.basal`. A 2 anios es el siguiente  `r p2y$fc.aj.risk.basal`.
+
+Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado solo con la actualización del riesgo basal:
+
+## Reestimar coeficientes mediante Cox: 
+
+Primero ajustamos nuevamente una regresión del cox sobre el índice pronósitco y recalculamos el coeficiente para este
+
+```{r}
+p5y_2 <- recal.risk.coef(dataA, 5)
+p5y_2
+```
+
+Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es `r p5y_2$fc.aj.coef` y la supervivencia basal ajustada es `r p5y_2$fc.aj.risk.basal`.
+
+```{r}
+p2y_2 <- recal.risk.coef(dataA, 2)
+p2y_2
+```
+Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es `r p2y_2$fc.aj.coef` y la supervivencia basal ajustada es `r p2y_2$fc.aj.risk.basal`.
+
+
+## Reestimar riesgo basal usando Cause-specific Hazard Models:
+
+Bajo este enfoque de recalibración, solo reestimaremos el riesgo basal: 
+
+```{r}
+p5y_csh <- recal.risk.basal.csh(dataA, 5)
+p5y_csh
+```
+
+```{r}
+p2y_csh <- recal.risk.basal.csh(dataA, 2)
+p2y_csh
+```
+El nuevo factor para recalcular el riesgo  basal (recalibrado) a 5 anios es el siguiente `r p5y_csh$fc.aj.risk.basal.csh`. A 2 anios es el siguiente  `r p2y_csh$fc.aj.risk.basal.csh`.
+
+Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado solo con la actualización del riesgo basal:
+
+
+## Reestimar coeficientes mediante Cause-specific Hazard Models: 
+
+Primero ajustamos nuevamente un Cause-specific Hazard Models sobre el índice pronósitco y recalculamos el coeficiente para este
+
+
+```{r}
+p5y_2.csh <- recal.risk.coef.csh(dataA, 5)
+p5y_2.csh
+```
+
+Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es `r p5y_2.csh$fc.aj.coef.csh` y la supervivencia basal ajustada es `r p5y_2.csh$fc.aj.risk.basal.csh`.
+
+```{r}
+p2y_2.csh <- recal.risk.coef.csh(dataA, 2)
+p2y_2.csh
+```
+
+Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es `r p2y_2.csh$fc.aj.coef.csh` y la supervivencia basal ajustada es `r p2y_2.csh$fc.aj.risk.basal.csh`.
+
+## Tabla de recalibracion
+
+```{r}
+datos.recal <- data.frame(
+  metodo = rep(c("A", "B", "C", "D"), each = 2),
+  year = rep(c(2, 5), 2), 
+  
+  sobrev_recal = c(p2y$fc.aj.risk.basal.mean, 
+                   p5y$fc.aj.risk.basal.mean, 
+                   p2y_2$fc.aj.risk.basal, 
+                   p5y_2$fc.aj.risk.basal,
+                   p2y_csh$fc.aj.risk.basal.csh, 
+                   p5y_csh$fc.aj.risk.basal.csh, 
+                   p2y_2.csh$fc.aj.risk.basal.csh, 
+                   p5y_2.csh$fc.aj.risk.basal.csh), 
+  fc_coef = c("No aplica", 
+              "No aplica", 
+              p2y_2$fc.aj.coef, 
+              p5y_2$fc.aj.coef, 
+              "No aplica", 
+              "No aplica", 
+              p2y_2.csh$fc.aj.coef.csh, 
+              p5y_2.csh$fc.aj.coef.csh)
+)
+
+datos.recal |> 
+  kbl() |> 
+  kable_classic()
+```
+
+
+## Ticket de Reproducibilidad
+
+```{r}
+sessionInfo()
+```
+
