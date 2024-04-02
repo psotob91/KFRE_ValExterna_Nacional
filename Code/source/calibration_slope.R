@@ -2,8 +2,8 @@
 calibration_slope <- function(data, horizon, primary_event, pred) {
   
   score_vdata <- Score(
-    list("csh_validation" = pred),
-    formula = Hist(time5y, eventd5y) ~ 1,
+    list("csh_validation" = data[[pred]]),
+    formula = Hist(time, eventd) ~ 1,
     cens.model = "km",
     data = data,
     conf.int = TRUE,

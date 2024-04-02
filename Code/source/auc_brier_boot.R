@@ -1,11 +1,10 @@
-# AUC
-auc_brier <- function(data, horizon, primary_event, pred) {
+auc_brier_boot <- function(split, horizon, primary_event, pred, ...) {
   
   score_vdata <- Score(
-    list("csh_validation" = as.matrix(data[[pred]])),
+    list("csh_validation" = as.matrix(analysis(split)[[pred]])),
     formula = Hist(time, eventd) ~ 1,
     cens.model = "km",
-    data = data,
+    data = analysis(split),
     conf.int = TRUE,
     times = horizon,
     metrics = c("auc", "Brier"),

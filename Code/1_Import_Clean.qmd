@@ -2,12 +2,17 @@
 title: "1 Codigo Reproducible: Preparación y Limpieza de Datos - Recalibración de modelo KFRE para predecir falla renal en asegurados de EsSalud"
 author: "Percy Soto Becerra"
 format: 
-  html: 
+  html:
+   theme: cerulean
    toc: true
    number-sections: true
    df-print: paged
    page-layout: full
    embed-resources: true
+   code-fold: true
+execute: 
+  warning: false
+  message: false
 ---
 
 ## Cargar paquetes

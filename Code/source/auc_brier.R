@@ -23,3 +23,4 @@ auc_brier <- function(data, horizon, primary_event, pred) {
             score_vdata[["Brier"]][["score"]][["se"]][[2]] ^ 2)
   ))
 }
+

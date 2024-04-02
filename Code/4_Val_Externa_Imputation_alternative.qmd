@@ -90,7 +90,8 @@ pacman::p_load(
   ggmice,
   parallel,
   tictoc, 
-  rio
+  rio,
+  tidymodels
 )
 
 if (!require("impstep")) remotes::install_github("bgravesteijn/impstep", force = TRUE)
@@ -111,6 +112,8 @@ library(impstep)
 # Import data
 data_impA <- readRDS(here::here("Data", "Tidy", "data_impA.rds")) 
 imp.datosA <- complete(data_impA, action = "long", include = TRUE)
+rm(data_impA)
+gc()
 ```
 
 ## Cargar funciones
@@ -122,11 +125,13 @@ source(here("Code", "source", "oe_ratio.R"))
 source(here("Code", "source", "calibration_intercept.R"))
 source(here("Code", "source", "calibration_slope.R"))
 source(here("Code", "source", "auc.R"))
+source(here("Code", "source", "auc_brier_boot.R"))
 source(here("Code", "source", "validate.mids.R"))
 source(here("Code", "source", "pool.validate.mids.R"))
 source(here("Code", "source", "pool.auc.mids.R"))
 source(here("Code", "source", "process_imp_cal_plot.R"))
 source(here("Code", "source", "predict.mira.R"))
+source(here("Code", "source", "performance_measures.R"))
 ```
 
 
@@ -137,109 +142,129 @@ n_cores <- detectCores()
 n_cores
 
 # Evaluate futures in parallel - max of two workers to avoid hogging resources
-future::plan("multisession", workers = n_cores)
+future::plan("multisession", workers = n_cores-2)
 ```
-
-## Pre-procesar datos
+## Pre-procesar
 
 ```{r}
 imp.datosA <- imp.datosA |> 
-  mutate(
-    acr = exp(log_acr), 
-    urine_crea = exp(log_urine_crea), 
-    urine_album = exp(log_urine_album), 
-    peso = 1 / max(imp.datosA$.imp), 
-    acr_cat = case_when(acr < 30 ~ "A1", 
-                        acr <= 300 & acr >= 30 ~ "A2", 
-                        acr > 300 ~ "A3", 
-                        TRUE ~ as.character(NA)),
-    ckd_class = case_when(
-      grf_cat %in% c("G1", "G2") & acr_cat == "A1" ~ "Low risk", 
-      (grf_cat %in% c("G3a") & acr_cat == "A1") | 
-        (grf_cat %in% c("G1", "G2") & acr_cat == "A2") ~ "Moderately increased risk", 
-      (grf_cat %in% c("G3b") & acr_cat == "A1") | 
-        (grf_cat == "G3a" & acr_cat == "A2") | 
-        (grf_cat %in% c("G1", "G2") & acr_cat == "A3") ~ "High risk", 
-      (grf_cat %in% c("G4", "G5") & acr_cat == "A1") | 
-        (grf_cat %in% c("G3b", "G4", "G5") & acr_cat == "A2") | 
-        (grf_cat %in% c("G3a", "G3b", "G4", "G5") & acr_cat == "A3") ~ "Very high risk"
-    )) |> 
-  labelled::set_variable_labels(
-    sex = "Sexo", 
-    age = "Edad (años)", 
-    crea = "Creatinina sérica (mg/dL)", 
-    eGFR_ckdepi = "TFG usando CKD-EPI, ml/min/1.73m2", 
-    acr = "Relación albúmina-creatinina, mg/g", 
-    urine_album = "Albúmina en orina (mg/ml)", 
-    urine_crea = "Creatinina en orina (mg/dl)", 
-    hta = "Hipertensión", 
-    dm = "Diabetes Mellitus", 
-    grf_cat = "Categorías de TFG", 
-    acr_cat = "Categorías de albuminuria persistente", 
-    ckd_class = "Clasificación CKD KDIGO", 
-    eventd5ylab = "Resultado a 5 años", 
-    eventd2ylab = "Resultado a 2 años", 
-    eventd5y = "Resultado a 5 años", 
-    death5y = "Defunción a 5 años", 
-    death2y = "Defunción a 2 años")
-
-imp.datosB <- imp.datosB |> 
-  mutate(
-    acr = exp(log_acr), 
-    urine_crea = exp(log_urine_crea), 
-    urine_album = exp(log_urine_album), 
-    peso = 1 / max(imp.datosB$.imp), 
-    acr_cat = case_when(acr < 30 ~ "A1", 
-                        acr <= 300 & acr >= 30 ~ "A2", 
-                        acr > 300 ~ "A3", 
-                        TRUE ~ as.character(NA)),
-    ckd_class = case_when(
-      grf_cat %in% c("G1", "G2") & acr_cat == "A1" ~ "Low risk", 
-      (grf_cat %in% c("G3a") & acr_cat == "A1") | 
-        (grf_cat %in% c("G1", "G2") & acr_cat == "A2") ~ "Moderately increased risk", 
-      (grf_cat %in% c("G3b") & acr_cat == "A1") | 
-        (grf_cat == "G3a" & acr_cat == "A2") | 
-        (grf_cat %in% c("G1", "G2") & acr_cat == "A3") ~ "High risk", 
-      (grf_cat %in% c("G4", "G5") & acr_cat == "A1") | 
-        (grf_cat %in% c("G3b", "G4", "G5") & acr_cat == "A2") | 
-        (grf_cat %in% c("G3a", "G3b", "G4", "G5") & acr_cat == "A3") ~ "Very high risk"
-    )) |> 
-  labelled::set_variable_labels(
-    sex = "Sexo", 
-    age = "Edad (años)", 
-    crea = "Creatinina sérica (mg/dL)", 
-    eGFR_ckdepi = "TFG usando CKD-EPI, ml/min/1.73m2", 
-    acr = "Relación albúmina-creatinina, mg/g", 
-    urine_album = "Albúmina en orina (mg/ml)", 
-    urine_crea = "Creatinina en orina (mg/dl)", 
-    hta = "Hipertensión", 
-    dm = "Diabetes Mellitus", 
-    grf_cat = "Categorías de TFG", 
-    acr_cat = "Categorías de albuminuria persistente", 
-    ckd_class = "Clasificación CKD KDIGO", 
-    eventd5ylab = "Resultado a 5 años", 
-    eventd2ylab = "Resultado a 2 años", 
-    eventd5y = "Resultado a 5 años", 
-    death5y = "Defunción a 5 años", 
-    death2y = "Defunción a 2 años") 
+  mutate(risk2y = kfre_pr(imp.datosA, 2),
+         risk5y = kfre_pr(imp.datosA, 5)) |> 
+  select(.imp, .id, time, eventd, risk2y, risk5y)
 ```
 
-```{r}
-# Create data for original data after processing
-dataA <- imp.datosA |> 
-  filter(.imp == 0)
-
-dataB <- imp.datosB |> 
-  filter(.imp == 0)
-
-# Create mids data  after processing
-data_impA <- as.mids(imp.datosA)
-data_impB <- as.mids(imp.datosB)
-```
 
 ## Predictive Performance
 
 ### Calibration and Discrimination Measures
+
+```{r}
+imp.datosA <- imp.datosA |> 
+  filter(.imp != 0) |> 
+  mutate(eventdf = factor(eventd))
+
+datos <- imp.datosA |> 
+  filter(.imp == 1) 
+
+datos2 <- imp.datosA |> 
+  filter(.imp <= 3) 
+```
+
+
+```{r}
+performance_measures(datos, 2, 1, "risk2y")
+```
+
+```{r}
+resultados <- datos2 %>%
+  group_by(.imp) %>%
+  nest() %>%
+  mutate(performance = future_map(data, ~ performance_measures(
+    data = .x,
+    horizon = 2,  
+    primary_event = 1,  
+    pred = "risk2y"),    
+    .options = furrr_options(
+      seed = 123, 
+      packages = c("riskRegression", 
+                   "survival", 
+                   "splines", 
+                   "cmprsk",
+                   "tidyverse", 
+                   "prodlim",
+                   "geepack")), 
+    .progress = TRUE)) 
+```
+
+
+```{r}
+resultados <- datos2 %>%
+  group_by(.imp) %>%
+  summarise(performance = list(future_map(
+    .x = list(cur_data()),  # Pasar los datos del grupo actual como lista para future_map
+    .f = ~ performance_measures(
+      data = .x,
+      horizon = 2,
+      primary_event = 1,
+      pred = "risk2y"
+    ),
+    .options = furrr_options(
+      seed = 123,
+      packages = c("riskRegression", "survival", "splines", "cmprsk", "tidyverse", "prodlim", "geepack")
+    )
+  )), .groups = 'drop') %>% 
+  mutate(performance = map(performance, `[[`, 1))  # Extrae el resultado de la lista para cada imputación
+
+# Asegúrate de que el resultado está como esperas
+glimpse(resultados)
+```
+
+
+```{r}
+imp.datosA |> 
+  mutate(results = future_map(.imp, 
+                              performance_measures, 
+                              horizon = 2, 
+                              primary_event = 1, 
+                              pred = "risk2y",    
+                              .options = furrr_options(
+                                seed = 123, 
+                                packages = c("riskRegression", 
+                                             "survival", 
+                                             "splines", 
+                                             "cmprsk",
+                                             "tidyverse", 
+                                             "prodlim",
+                                             "geepack")), 
+                              .progress = TRUE))
+```
+
+
+```{r}
+tic()
+bootdf <- bootstraps(imp.datosA, times = 10, 
+                     strata = .imp, 
+                     apparent = TRUE) |> 
+  mutate(results = future_map(splits, 
+                              auc_brier_boot, 
+                              horizon = 2, 
+                              primary_event = 1, 
+                              pred = "risk2y",                            
+                              .options = furrr_options(
+                                seed = 123, 
+                                packages = c("riskRegression", 
+                                             "survival", 
+                                             "splines", 
+                                             "cmprsk",
+                                             "tidyverse", 
+                                             "prodlim")), 
+                              .progress = TRUE))
+toc()
+```
+```{r}
+int_pctl(bootdf, results)
+```
+
 
 ```{r}
 # Grupo 3a-3b-4 2 anios---------------------------------------------------------
