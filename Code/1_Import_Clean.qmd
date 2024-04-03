@@ -650,7 +650,6 @@ data_fallec_sinadef <- import(here("Data", "Raw", "sinadef2017_2023.csv")) |>
 head(data_fallec_sinadef, 10)
 ```
 
-
 ```{r}
 data_pred_kaelin3 <- data_pred_kaelin2 |> 
   left_join(data_fallec_sinadef, by = c("dni" = "documento"))
@@ -666,14 +665,27 @@ data_pred_kaelin3 |>
   count(fallecido)
 ```
 
+```{r}
+data_pred_kaelin3b <- data_pred_kaelin2 |> 
+  left_join(data_fallec, by = "dni")
+```
+
+```{r}
+data_pred_kaelin3b |> 
+  count(fuente)
+```
+
+```{r}
+data_pred_kaelin3b |> 
+  mutate(fallecido = if_else(!is.na(death_date), "si", "no")) |> 
+  count(fallecido)
+```
 
 #### Inspeccionar datos perdidos
-
 
 ```{r}
 gg_miss_upset(data_pred_kaelin3)
 ```
-
 
 #### Fusionar datos de dialisis y mortalidad con datos de Rebagliati
 
@@ -2134,19 +2146,44 @@ gg_miss_upset(datos3 |>
 
 ```{r}
 datos_total <- datos3 |> 
-  filter(cas != "Rebagliati") |> 
+  # filter(cas != "Rebagliati") |> 
   bind_rows(data_pred_reba4) |> 
-  # bind_rows(data_pred_kaelin4) |> 
-  select(-dni, -fuente,   -auto_cor) |> #-tipo_doc -fallecido, -fech_fallecimiento, 
+  bind_rows(data_pred_kaelin4) |> 
+  # select(-dni, -fuente,   -auto_cor) |> #-tipo_doc -fallecido, -fech_fallecimiento, 
   mutate(id = 1:n()) |> 
   select(id, everything()) |> 
   mutate(cas = case_when(cas == "Almenara" ~ "Lima - Almenara", 
                          cas == "Libertad" ~ "La Libertad", 
+                         cas == "KAELIN" ~ "Lima - Rebagliati",
                          cas == "REBAGLIATI" ~ "Lima - Rebagliati", 
                          cas == "Red Ica" ~ "Ica", 
                          cas == "Sabogal" ~ "Lima - Sabogal",
                          TRUE ~ cas))
 ```
+
+Se aprecia que no hay duplicados reconocidos de DNI, solo se identifican duplicados de datos perdidso de DNI>
+
+```{r}
+datos_total |> 
+  get_dupes(dni) |> 
+  arrange(dni)
+```
+
+```{r}
+datos_total |> 
+  get_dupes(auto_cor) |> 
+  arrange(auto_cor)
+```
+
+```{r}
+distinct(.keep_all = TRUE)
+```
+
+
+```{r}
+datos_total |> count(cas)
+```
+
 
 ```{r}
 datos_total |> head()

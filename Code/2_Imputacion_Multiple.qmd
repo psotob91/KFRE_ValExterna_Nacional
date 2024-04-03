@@ -239,6 +239,7 @@ data_noeleg_ckd12 <- data |>
 
 nrow(data_noeleg_ckd12)
 ```
+
 ```{r}
 data_noeleg_ckd5 <- data |> 
   filter(ckd_stage == "Stages 1-2 y 5", eGFR_ckdepi < 15)

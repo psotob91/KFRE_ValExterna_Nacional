@@ -1,5 +1,7 @@
 performance_measures <- function(data, horizon, primary_event, pred, ...) {
   
+  ndata <- nrow(data)
+  
   ## OE  ratio
   
   obj <- summary(survfit(Surv(time, eventdf) ~ 1, 
@@ -12,9 +14,15 @@ performance_measures <- function(data, horizon, primary_event, pred, ...) {
   
   avg_pred <- mean(data[[pred]], na.rm = TRUE)
   
-  oe_ratio <- avg_obs / avg_pred
+  ln_oe_ratio <- log(avg_obs) - log(avg_pred)
+  #Fuente: anexo de https://www.bmj.com/content/356/bmj.i6460/related
+  # anexo: https://www.bmj.com/content/bmj/suppl/2017/01/05/bmj.i6460.DC1/debt033157.ww_default.pdf
+  
+  se_ln_oe_ratio <- (1 / avg_obs ) * se_avg_obs
   
   oe_diff <- avg_obs - avg_pred
+  
+  se_oe_diff <- se_avg_obs # Por metodo delta se demustra
   
   ## Calibration Intercept
   
@@ -56,6 +64,7 @@ performance_measures <- function(data, horizon, primary_event, pred, ...) {
     jack = TRUE
   )
   
+  # Fit model for calibration slope
   fit_cal_slope <- geese(
     pseudovalue ~ offset(cll_pred) + cll_pred,
     data = pseudos,
@@ -80,32 +89,38 @@ performance_measures <- function(data, horizon, primary_event, pred, ...) {
     plots = "calibration"
   )
   
-  return(tibble(
-    term = c("Average predicted risk", 
-             "Overall observerd risk", 
-             "OE ratio", 
-             "OE difference", 
-             "Calibration Intercept", 
-             "Calibration Slope", 
-             "AUC", 
-             "Brier" 
-             ), 
-    estimate = c(avg_pred, avg_obs, oe_ratio, oe_diff, 
-                 summary(fit_cal_int)$mean$estimate, 
-                 summary(fit_cal_slope)$mean["cll_pred", "estimate"], 
-                 score_vdata[["AUC"]][["score"]][["AUC"]], 
-                 score_vdata[["Brier"]][["score"]][["Brier"]][[2]] 
-                 ), 
-    se = c(NA, se_avg_obs, NA, NA, 
-           summary(fit_cal_int)$mean$san.se, 
-           summary(fit_cal_slope)$mean["cll_pred", "san.se"], 
-           score_vdata[["Brier"]][["score"]][["se"]][[2]], 
-           score_vdata[["AUC"]][["score"]][["se"]] 
-           ), 
-    var = c(NA, se_avg_obs, NA, NA,
-            summary(fit_cal_int)$mean$san.se ^ 2, 
-            summary(fit_cal_slope)$mean["cll_pred", "san.se"] ^ 2, 
-            score_vdata[["AUC"]][["score"]][["se"]] ^ 2, 
-            score_vdata[["Brier"]][["score"]][["se"]][[2]] ^ 2 
-            )))
+  #Fuente: anexo de https://www.bmj.com/content/356/bmj.i6460/related
+  # anexo: https://www.bmj.com/content/bmj/suppl/2017/01/05/bmj.i6460.DC1/debt033157.ww_default.pdf
+  auc <- score_vdata[["AUC"]][["score"]][["AUC"]]
+  logit_auc <- log(auc / (1 - auc))
+  
+  se_auc <- score_vdata[["AUC"]][["score"]][["se"]]
+  se_logit_auc <- se_auc / (auc * (1 - auc)) 
+  
+  return(
+    tibble(
+      term = c("Average predicted risk", 
+               "Overall observerd risk", 
+               "Log OE ratio", 
+               "OE difference", 
+               "Calibration Intercept", 
+               "Calibration Slope", 
+               "Logit AUC", 
+               "Brier" 
+      ), 
+      estimate_imp = c(avg_pred, avg_obs, ln_oe_ratio, oe_diff, 
+                   summary(fit_cal_int)$mean$estimate, 
+                   summary(fit_cal_slope)$mean["cll_pred", "estimate"], 
+                   logit_auc, 
+                   score_vdata[["Brier"]][["score"]][["Brier"]][[2]] 
+      ), 
+      se = c(NA, se_avg_obs, se_ln_oe_ratio, se_oe_diff, 
+             summary(fit_cal_int)$mean$san.se, 
+             summary(fit_cal_slope)$mean["cll_pred", "san.se"], 
+             se_logit_auc, 
+             score_vdata[["Brier"]][["score"]][["se"]][[2]]
+      ), 
+      n = rep(ndata, 8)
+    )
+  )
 }

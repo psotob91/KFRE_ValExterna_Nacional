@@ -20,9 +20,6 @@ score_vdata <- Score(
 
 auc_brier(datos, 5, 1, "risk2y")
 
-library(survival)
-library(riskRegression)
-library(prodlim)
 performance_measures(datos, 2, 1, "risk2y")
 
 tic()

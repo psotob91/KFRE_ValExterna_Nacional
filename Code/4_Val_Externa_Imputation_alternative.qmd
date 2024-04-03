@@ -132,6 +132,9 @@ source(here("Code", "source", "pool.auc.mids.R"))
 source(here("Code", "source", "process_imp_cal_plot.R"))
 source(here("Code", "source", "predict.mira.R"))
 source(here("Code", "source", "performance_measures.R"))
+source(here("Code", "source", "tidy_performance_stack.R"))    
+source(here("Code", "source", "tidy_pool.R")) 
+source(here("Code", "source", "process_imp_cal_plot.R")) 
 ```
 
 
@@ -139,18 +142,28 @@ source(here("Code", "source", "performance_measures.R"))
 
 ```{r}
 n_cores <- detectCores()
-n_cores
+n_cores <- 3
 
 # Evaluate futures in parallel - max of two workers to avoid hogging resources
-future::plan("multisession", workers = n_cores-2)
+future::plan("multisession", workers = n_cores)
 ```
+
+## Semilla
+
+```{r}
+seed <- 2014
+```
+
 ## Pre-procesar
 
 ```{r}
 imp.datosA <- imp.datosA |> 
   mutate(risk2y = kfre_pr(imp.datosA, 2),
-         risk5y = kfre_pr(imp.datosA, 5)) |> 
-  select(.imp, .id, time, eventd, risk2y, risk5y)
+         risk5y = kfre_pr(imp.datosA, 5), 
+         eventdf = factor(eventd)) |> 
+  select(.imp, .id, time, eventd, eventdf, risk2y, risk5y) |>  
+  filter(.imp != 0) |> 
+  filter(.imp <= 3) ####
 ```
 
 
@@ -159,413 +172,124 @@ imp.datosA <- imp.datosA |>
 ### Calibration and Discrimination Measures
 
 ```{r}
-imp.datosA <- imp.datosA |> 
-  filter(.imp != 0) |> 
-  mutate(eventdf = factor(eventd))
+future::plan("multisession", workers = n_cores)
+results_stack3a4_2y <- tidy_performance_stack(imp.datosA, 
+                                  horizon = 2, 
+                                  primary_event = 1, 
+                                  pred = "risk2y",
+                                  seed = seed, 
+                                  n_cores = n_cores)
 
-datos <- imp.datosA |> 
-  filter(.imp == 1) 
+rio::export(results_stack3a4_2y , here("Data", "Tidy", 
+                                       "res_valext__kfre_orig_stack3a4_2y.rds"))
 
-datos2 <- imp.datosA |> 
-  filter(.imp <= 3) 
+future::plan("multisession", workers = n_cores)
+results_stack3a4_5y <- tidy_performance_stack(imp.datosA, 
+                                  horizon = 5, 
+                                  primary_event = 1, 
+                                  pred = "risk5y",
+                                  seed = seed, 
+                                  n_cores = n_cores)
+
+rio::export(results_stack3a4_5y, here("Data", "Tidy", 
+                                      "res_valext_kfre_orig_stack3a4_5y.rds"))
 ```
 
-
 ```{r}
-performance_measures(datos, 2, 1, "risk2y")
+res_pool1 <- tidy_pool(results_stack3a4_2y) 
+
+res_pool1 |> 
+  kbl() |> 
+  kable_classic(full_width = T, html_font = "Cambria")
 ```
 
 ```{r}
-resultados <- datos2 %>%
-  group_by(.imp) %>%
-  nest() %>%
-  mutate(performance = future_map(data, ~ performance_measures(
-    data = .x,
-    horizon = 2,  
-    primary_event = 1,  
-    pred = "risk2y"),    
-    .options = furrr_options(
-      seed = 123, 
-      packages = c("riskRegression", 
-                   "survival", 
-                   "splines", 
-                   "cmprsk",
-                   "tidyverse", 
-                   "prodlim",
-                   "geepack")), 
-    .progress = TRUE)) 
+res_pool2 <- tidy_pool(results_stack3a4_5y) 
+
+res_pool2 |> 
+  kbl() |> 
+  kable_classic(full_width = T, html_font = "Cambria")
 ```
 
-
 ```{r}
-resultados <- datos2 %>%
-  group_by(.imp) %>%
-  summarise(performance = list(future_map(
-    .x = list(cur_data()),  # Pasar los datos del grupo actual como lista para future_map
-    .f = ~ performance_measures(
-      data = .x,
-      horizon = 2,
-      primary_event = 1,
-      pred = "risk2y"
-    ),
-    .options = furrr_options(
-      seed = 123,
-      packages = c("riskRegression", "survival", "splines", "cmprsk", "tidyverse", "prodlim", "geepack")
-    )
-  )), .groups = 'drop') %>% 
-  mutate(performance = map(performance, `[[`, 1))  # Extrae el resultado de la lista para cada imputación
+tab_res_2y <- res_pool1 |> 
+  select(term, estimate, ll, ul) |> 
+  mutate(
+    across(c(estimate, ll, ul), ~ if_else(term == "Log OE ratio", exp(.x), .x)), 
+    across(c(estimate, ll, ul), ~ if_else(term == "Logit AUC", exp(.x) / (1  + exp(.x)), .x)), 
+    term = if_else(term == "Log OE ratio", "OE ratio", term), 
+    term = if_else(term == "Logit AUC", "AUC", term), 
+    across(c(estimate, ll, ul), ~ if_else(term %in% 
+                                            c("Average predicted risk", 
+                                              "Overall observerd risk", 
+                                              "OE difference"), 100 * .x, .x)), 
+    across(c(estimate, ll, ul), ~ round(.x, 2)), 
+    measures = case_when(term == "Average predicted risk" ~ str_glue("{estimate}%"), 
+                       term %in% c("Overall observerd risk", "OE difference") ~ str_glue("{estimate}% ({ll}% to {ul}%)"),
+                       TRUE ~ str_glue("{estimate} ({ll} to {ul})")
+                       )
+    ) |> 
+  select(term, measures) |> 
+  mutate(grupo = c(rep("Calibration", 6), "Discrimination", "Overall performance"), 
+         year = "2 years")
 
-# Asegúrate de que el resultado está como esperas
-glimpse(resultados)
-```
+tab_res_5y <- res_pool2 |> 
+  select(term, estimate, ll, ul) |> 
+  mutate(
+    across(c(estimate, ll, ul), ~ if_else(term == "Log OE ratio", exp(.x), .x)), 
+    across(c(estimate, ll, ul), ~ if_else(term == "Logit AUC", exp(.x) / (1  + exp(.x)), .x)), 
+    term = if_else(term == "Log OE ratio", "OE ratio", term), 
+    term = if_else(term == "Logit AUC", "AUC", term), 
+    across(c(estimate, ll, ul), ~ if_else(term %in% 
+                                            c("Average predicted risk", 
+                                              "Overall observerd risk", 
+                                              "OE difference"), 100 * .x, .x)), 
+    across(c(estimate, ll, ul), ~ round(.x, 2)), 
+    measures = case_when(term == "Average predicted risk" ~ str_glue("{estimate}%"), 
+                       term %in% c("Overall observerd risk", "OE difference") ~ str_glue("{estimate}% ({ll}% to {ul}%)"),
+                       TRUE ~ str_glue("{estimate} ({ll} to {ul})")
+                       )
+    ) |> 
+  select(term, measures) |> 
+  mutate(grupo = c(rep("Calibration", 6), "Discrimination", "Overall performance"), 
+         year = "5 years")
 
+tab_res0 <- tab_res_2y |>
+  bind_rows(tab_res_5y)
 
-```{r}
-imp.datosA |> 
-  mutate(results = future_map(.imp, 
-                              performance_measures, 
-                              horizon = 2, 
-                              primary_event = 1, 
-                              pred = "risk2y",    
-                              .options = furrr_options(
-                                seed = 123, 
-                                packages = c("riskRegression", 
-                                             "survival", 
-                                             "splines", 
-                                             "cmprsk",
-                                             "tidyverse", 
-                                             "prodlim",
-                                             "geepack")), 
-                              .progress = TRUE))
-```
-
-
-```{r}
-tic()
-bootdf <- bootstraps(imp.datosA, times = 10, 
-                     strata = .imp, 
-                     apparent = TRUE) |> 
-  mutate(results = future_map(splits, 
-                              auc_brier_boot, 
-                              horizon = 2, 
-                              primary_event = 1, 
-                              pred = "risk2y",                            
-                              .options = furrr_options(
-                                seed = 123, 
-                                packages = c("riskRegression", 
-                                             "survival", 
-                                             "splines", 
-                                             "cmprsk",
-                                             "tidyverse", 
-                                             "prodlim")), 
-                              .progress = TRUE))
-toc()
-```
-```{r}
-int_pctl(bootdf, results)
-```
-
-
-```{r}
-# Grupo 3a-3b-4 2 anios---------------------------------------------------------
-horizon <- 2
-primary_event <- 1
-
-auc_measure <- validate.mids(data_impA, kfre_pr, auc, "auc", alpha = 0.05, 
-                             horizon = horizon, primary_event = primary_event)
-cal_int_measure <- validate.mids(data_impA, kfre_pr, calibration_intercept, 
-                                 "calibration_intercept", alpha = 0.05, 
-                                 horizon = horizon, primary_event = primary_event)
-cal_slope_measure <- validate.mids(data_impA, kfre_pr, calibration_slope, 
-                                   "calibration_slope", alpha = 0.05, 
-                                   horizon = horizon, primary_event = primary_event)
-oe_ratio_measure <- validate.mids(data_impA, kfre_pr, oe_ratio, 
-                                   "oe_ratio", alpha = 0.05, 
-                                   horizon = horizon, primary_event = primary_event)
-## Average predicted risk
-imp.datosA |> 
-  mutate(pred = kfre_pr(imp.datosA, horizon)) |> 
-  filter(.imp != 0) |> 
-  summarise(avg_pred = mean(pred)) |> 
-  pull(avg_pred) -> avg_pred
-
-## Average observed proportion
-avg_obs_imp <- rep(NA, max(imp.datosA$.imp))
-
-for (i in seq_len(max(imp.datosA$.imp))) {
-  datos_filtered <- imp.datosA |> 
-    filter(.imp == i) 
-  
-  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
-  avg_obs <- obj$pstate[, primary_event + 1]
-  avg_obs_imp[i] <- avg_obs
-}
-
-avg_obs <- mean(avg_obs_imp)
-
-## Other measures
-oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
-cal_int_res <- pool.validate.mids(cal_int_measure)
-cal_slope_res <- pool.validate.mids(cal_slope_measure)
-auc_res <- pool.validate.mids(auc_measure)
-
-## Table of results
-datos_res1 <- data.frame(
-  measures = c("Average predicted risk", "Average observed proportion", 
-               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
-               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
-  estimates = c(100 * avg_pred, 100 * avg_obs, 
-                oe_ratio_res[["pooled"]][["estimate"]], 
-                cal_int_res[["pooled"]][["estimate"]], 
-                cal_slope_res[["pooled"]][["estimate"]], 
-                auc_res[["pooled"]][["estimate"]]), 
-  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
-            cal_int_res[["pooled"]][["ci.lb"]], 
-            cal_slope_res[["pooled"]][["ci.lb"]], 
-            auc_res[["pooled"]][["ci.lb"]]),
-  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
-            cal_int_res[["pooled"]][["ci.ub"]], 
-            cal_slope_res[["pooled"]][["ci.ub"]], 
-            auc_res[["pooled"]][["ci.ub"]])
-  ) |> 
-  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
-  select(measures, res)
-
-# Grupo 3a-3b-4 5 anios---------------------------------------------------------
-horizon <- 5
-primary_event <- 1
-auc_measure <- validate.mids(data_impA, kfre_pr, auc, "auc", alpha = 0.05, 
-                             horizon = horizon, primary_event = primary_event)
-cal_int_measure <- validate.mids(data_impA, kfre_pr, calibration_intercept, 
-                                 "calibration_intercept", alpha = 0.05, 
-                                 horizon = horizon, primary_event = primary_event)
-cal_slope_measure <- validate.mids(data_impA, kfre_pr, calibration_slope, 
-                                   "calibration_slope", alpha = 0.05, 
-                                   horizon = horizon, primary_event = primary_event)
-oe_ratio_measure <- validate.mids(data_impA, kfre_pr, oe_ratio, 
-                                  "oe_ratio", alpha = 0.05, 
-                                  horizon = horizon, primary_event = primary_event)
-
-## Average predicted risk
-imp.datosA |> 
-  mutate(pred = kfre_pr(imp.datosA, 5)) |> 
-  filter(.imp != 0) |> 
-  summarise(avg_pred = mean(pred)) |> 
-  pull(avg_pred) -> avg_pred
-
-## Average observed proportion
-avg_obs_imp <- rep(NA, max(imp.datosA$.imp))
-
-for (i in seq_len(max(imp.datosA$.imp))) {
-  datos_filtered <- imp.datosA |> 
-    filter(.imp == i) 
-  
-  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
-  avg_obs <- obj$pstate[, primary_event + 1]
-  avg_obs_imp[i] <- avg_obs
-}
-
-avg_obs <- mean(avg_obs_imp)
-
-oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
-cal_int_res <- pool.validate.mids(cal_int_measure)
-cal_slope_res <- pool.validate.mids(cal_slope_measure)
-auc_res <- pool.validate.mids(auc_measure)
-
-datos_res2 <- data.frame(
-  measures = c("Average predicted risk", "Average observed proportion", 
-               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
-               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
-  estimates = c(100 * avg_pred, 100 * avg_obs, 
-                oe_ratio_res[["pooled"]][["estimate"]], 
-                cal_int_res[["pooled"]][["estimate"]], 
-                cal_slope_res[["pooled"]][["estimate"]], 
-                auc_res[["pooled"]][["estimate"]]), 
-  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
-                cal_int_res[["pooled"]][["ci.lb"]], 
-                cal_slope_res[["pooled"]][["ci.lb"]], 
-                auc_res[["pooled"]][["ci.lb"]]),
-  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
-                cal_int_res[["pooled"]][["ci.ub"]], 
-                cal_slope_res[["pooled"]][["ci.ub"]], 
-                auc_res[["pooled"]][["ci.ub"]])
-) |> 
-  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
-  select(measures, res)
-
-# Grupo 3b-4 2 anios---------------------------------------------------------
-horizon <- 2
-primary_event <- 1
-
-auc_measure <- validate.mids(data_impB, kfre_pr, auc, "auc", alpha = 0.05, 
-                             horizon = horizon, primary_event = primary_event)
-cal_int_measure <- validate.mids(data_impB, kfre_pr, calibration_intercept, 
-                                 "calibration_intercept", alpha = 0.05, 
-                                 horizon = horizon, primary_event = primary_event)
-cal_slope_measure <- validate.mids(data_impB, kfre_pr, calibration_slope, 
-                                   "calibration_slope", alpha = 0.05, 
-                                   horizon = horizon, primary_event = primary_event)
-oe_ratio_measure <- validate.mids(data_impB, kfre_pr, oe_ratio, 
-                                   "oe_ratio", alpha = 0.05, 
-                                   horizon = horizon, primary_event = primary_event)
-
-## Average predicted risk
-imp.datosB |> 
-  mutate(pred = kfre_pr(imp.datosB, 2)) |> 
-  filter(.imp != 0) |> 
-  summarise(avg_pred = mean(pred)) |> 
-  pull(avg_pred) -> avg_pred
-
-## Average observed proportion
-
-avg_obs_imp <- rep(NA, max(imp.datosB$.imp))
-
-for (i in seq_len(max(imp.datosB$.imp))) {
-  datos_filtered <- imp.datosB |> 
-    filter(.imp == i) 
-  
-  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
-  avg_obs <- obj$pstate[, primary_event + 1]
-  avg_obs_imp[i] <- avg_obs
-}
-
-avg_obs <- mean(avg_obs_imp)
-
-oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
-cal_int_res <- pool.validate.mids(cal_int_measure)
-cal_slope_res <- pool.validate.mids(cal_slope_measure)
-auc_res <- pool.validate.mids(auc_measure)
-
-datos_res3 <- data.frame(
-  measures = c("Average predicted risk", "Average observed proportion", 
-               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
-               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
-  estimates = c(100 * avg_pred, 100 * avg_obs, 
-                oe_ratio_res[["pooled"]][["estimate"]], 
-                cal_int_res[["pooled"]][["estimate"]], 
-                cal_slope_res[["pooled"]][["estimate"]], 
-                auc_res[["pooled"]][["estimate"]]), 
-  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
-                cal_int_res[["pooled"]][["ci.lb"]], 
-                cal_slope_res[["pooled"]][["ci.lb"]], 
-                auc_res[["pooled"]][["ci.lb"]]),
-  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
-                cal_int_res[["pooled"]][["ci.ub"]], 
-                cal_slope_res[["pooled"]][["ci.ub"]], 
-                auc_res[["pooled"]][["ci.ub"]])
-) |> 
-  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
-  select(measures, res)
-
-# Grupo 3b-4 5 anios---------------------------------------------------------
-horizon <- 5
-primary_event <- 1
-auc_measure <- validate.mids(data_impB, kfre_pr, auc, "auc", alpha = 0.05, 
-                             horizon = horizon , primary_event = primary_event)
-cal_int_measure <- validate.mids(data_impB, kfre_pr, calibration_intercept, 
-                                 "calibration_intercept", alpha = 0.05, 
-                                 horizon = horizon , primary_event = primary_event)
-cal_slope_measure <- validate.mids(data_impB, kfre_pr, calibration_slope, 
-                                   "calibration_slope", alpha = 0.05, 
-                                   horizon = horizon , primary_event = primary_event)
-oe_ratio_measure <- validate.mids(data_impB, kfre_pr, oe_ratio, 
-                                   "oe_ratio", alpha = 0.05, 
-                                   horizon = horizon , primary_event = primary_event)
-
-
-## Average predicted risk
-imp.datosB |> 
-  mutate(pred = kfre_pr(imp.datosB, 5)) |> 
-  filter(.imp != 0) |> 
-  summarise(avg_pred = mean(pred)) |> 
-  pull(avg_pred) -> avg_pred
-
-## Average observed proportion
-avg_obs_imp <- rep(NA, max(imp.datosB$.imp))
-
-for (i in seq_len(max(imp.datosB$.imp))) {
-  datos_filtered <- imp.datosB |> 
-    filter(.imp == i) 
-  
-  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
-  avg_obs <- obj$pstate[, primary_event + 1]
-  avg_obs_imp[i] <- avg_obs
-}
-
-avg_obs <- mean(avg_obs_imp)
-
-oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
-cal_int_res <- pool.validate.mids(cal_int_measure)
-cal_slope_res <- pool.validate.mids(cal_slope_measure)
-auc_res <- pool.validate.mids(auc_measure)
-
-datos_res4 <- data.frame(
-  measures = c("Average predicted risk", "Average observed proportion", 
-               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
-               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
-  estimates = c(100 * avg_pred, 100 * avg_obs, 
-                oe_ratio_res[["pooled"]][["estimate"]], 
-                cal_int_res[["pooled"]][["estimate"]], 
-                cal_slope_res[["pooled"]][["estimate"]], 
-                auc_res[["pooled"]][["estimate"]]), 
-  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
-                cal_int_res[["pooled"]][["ci.lb"]], 
-                cal_slope_res[["pooled"]][["ci.lb"]], 
-                auc_res[["pooled"]][["ci.lb"]]),
-  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
-                cal_int_res[["pooled"]][["ci.ub"]], 
-                cal_slope_res[["pooled"]][["ci.ub"]], 
-                auc_res[["pooled"]][["ci.ub"]])
-) |> 
-  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
-  select(measures, res)
-```
-
-
-```{r}
-# Tabla final
-table_perf_final <- datos_res1 |> 
-  left_join(datos_res2, by = "measures") |> 
-  left_join(datos_res3, by = "measures") |> 
-  left_join(datos_res4, by = "measures") |> 
-  mutate(grupo = c(rep("Calibration", 5), "Discrimination")) |> 
+tab_res0 |> 
+  as_grouped_data(groups = "year") |> 
   as_grouped_data(groups = "grupo") |> 
   flextable::as_flextable(hide_grouplabel = TRUE) |> 
+  autofit() |> 
   set_header_labels(
-    measures = "Validation aspect and performance measure", 
-    res.x = "t = 2 year", 
-    res.y = "t = 5 year", 
-    res.x.x = "t = 2 year", 
-    res.y.y = "t = 5 year" 
-  ) %>% 
-  add_header_row(
-    values = c("Validation aspect and performance measure", "CKD Stages 3a-3b-4", "CKD Stages 3b-4"), 
-    colwidths = c(1, 2, 2)
-  ) %>% 
-  merge_v(j = 1, part = "header") %>% 
-  bold(i = c(1, 7)) %>% 
-  autofit()  %>% 
-  set_caption("Table 2. Performance measures of KFRE in the external dataset of patients with CKD Stages 3a-4 and 3b-4") %>% 
-  theme_booktabs() %>%  
-  bold(bold = TRUE, part = "header") 
+    year = "Time horizon", 
+    term = "Performance measure", 
+    measures = "Original KFRE"
+  ) |>  
+  bold(j = 1) |> 
+  set_caption("Table. Performance measures of KFRE in the external dataset of patients with CKD Stages 3a-4") |>  
+  theme_booktabs() |>   
+  bold(bold = TRUE, part = "header") -> table_perf_final
 
 table_perf_final %>% 
-  flextable::save_as_docx(path = here("Tables/Table_Imputed_Performance.docx"))
+  flextable::save_as_docx(path = here("Tables/Table_Imputed_Performance_Modelo_Original.docx"))
 
 table_perf_final
 ```
 
 ```{r}
-rm(list = c("data_impA", "data_impB", "dataA", "dataB"))
+rm(list=ls()[! ls() %in% c("imp.datosA","vdata", "primary_event", "horizon", 
+                           "process_imp_cal_plot", "seed", "n_cores")])
 gc()
 ```
 
 ### Moderate calibration: Calibration curves lowess based on subdistributional hazards
 
 ```{r}
-#| label: rcs-pseudo
-
 primary_event <- 1
+
+n_internal_knots <- 5
 
 # Seleccion del grupo: Stages 3-4----
 
@@ -573,108 +297,79 @@ primary_event <- 1
 horizon <- 2
 
 vdata <- imp.datosA %>% 
-  mutate(risk2y = kfre_pr(imp.datosA, horizon = 2), 
-         risk5y = kfre_pr(imp.datosA, horizon = 5)) |> 
-  select(.imp, .id, risk2y, risk5y, time5y, eventd5y, time, eventd) |> 
-  mutate(pred = risk2y) |> 
+  rename(pred = risk2y) |> 
   select(.imp, .id, time, eventd, pred) |> 
   mutate(cll_pred = log(-log(1 - pred)))
 
-subdist_list <- future_map(1:max(vdata$.imp),
-                           process_imp_cal_plot, 
-                           vdata = vdata, 
-                           primary_event = primary_event, 
-                           horizon = horizon, 
-                           type = "subdist_hazard", 
-                           n_internal_knots = 5,
-                           .options = furrr_options(seed = 123, 
-                                                    packages = c("riskRegression", 
-                                                                 "survival", 
-                                                                 "splines", 
-                                                                 "cmprsk",
-                                                                 "tidyverse")), 
-                           .progress = TRUE)
+future::plan("multisession", workers = n_cores)
 
-subdist_df <- bind_rows(subdist_list) |>  
-  filter(.imp != 0) |> 
-  arrange(.imp, .id)
+subdist_df_imp <- future_map(1:max(vdata$.imp),
+                         process_imp_cal_plot, 
+                         vdata = vdata, 
+                         primary_event = primary_event, 
+                         horizon = horizon, 
+                         type = "subdist_hazard", 
+                         n_internal_knots = n_internal_knots,
+                         .options = furrr_options(seed = seed, 
+                                                  packages = c("riskRegression", 
+                                                               "survival", 
+                                                               "splines", 
+                                                               "cmprsk",
+                                                               "tidyverse")), 
+                         .progress = TRUE) 
 
-rio::export(subdist_df, here("Data", "Tidy", "subdist_df_3a4_2y.rds"))
+subdist_df_imp <- subdist_df_imp |> 
+  bind_rows() |>  
+  arrange(risk)
 
 # 5 knots seems to give somewhat equivalent graph to pseudo method with bw = 0.05
-vdata_stack <- vdata |> 
-  filter(.imp != 0)
-
-n_internal_knots <- 5
-
-rcs_vdata <- ns(vdata_stack$cll_pred, df = n_internal_knots + 1)
+rcs_vdata <- ns(vdata$cll_pred, df = n_internal_knots + 1)
 
 colnames(rcs_vdata) <- paste0("basisf_", colnames(rcs_vdata))
 # vdata_bis <- cbind.data.frame(vdata_filt, rcs_vdata)
 
-vdata_stack <- vdata_stack |> 
+vdata <- vdata |> 
   bind_cols(as.data.frame(rcs_vdata))
 
 # Use subdistribution hazards (Fine-Gray) model
 form_fgr <- reformulate(
   termlabels = colnames(rcs_vdata),
   response = "Hist(time, eventd)")
-```
 
-```{r}
-rm(list=ls()[! ls() %in% c("imp.datosA","vdata_stack", "imp.datosB", 
-                           "n_internal_knots", "rcs_vdata", "form_fgr",  
-                           "primary_event", "horizon")])
-gc()
-```
-
-
-```{r}
 # Regress subdistribution of event of interest on cloglog of estimated risks
 calib_fgr <- FGR(
   formula = form_fgr,
   cause = primary_event,
-  data = vdata_stack, 
-  variance = FALSE
+  data = vdata, 
+  variance = FALSE, 
+  y = FALSE
 )
-```
 
-```{r}
-export(calib_fgr, here("Code", "source", "calib_fgr_3a4_2y.rds"))
-```
+obs <- predict(calib_fgr, times = horizon, newdata = vdata)
 
-```{r}
-obs <- predict(calib_fgr, times = horizon, newdata = vdata_stack)
-```
-
-
-```{r}
-subdist_df2 <- vdata_stack |>
-   mutate(obs_stack = obs, 
-          risk = pred, 
-          deciles_risk = quantcut(risk, seq(0, 1, by = 0.1)))
+subdist_df_stack <- vdata |>
+  rename(risk = pred) |> 
+  mutate(obs_stack = obs, 
+         deciles_risk = quantcut(risk, seq(0, 1, by = 0.1))) |> 
+  arrange(risk)
 
 # Crea datos con predicciones agrupadas por deciles
-subdist_df_dec <- subdist_df2 |>
+subdist_df_dec <- subdist_df_stack |>
   group_by(deciles_risk) |>
   summarize(
     risk_dec = mean(risk),
-    obs_dec = mean(obs_stack))
+    obs_dec = mean(obs_stack)) |> 
+  arrange(deciles_risk)
+
+rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y.rds"))
+rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_stack_3a4_2y.rds"))
+rio::export(subdist_df_dec, here("Data", "Tidy", "subdist_df_dec_3a4_2y.rds"))
 
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
-  geom_line(data = subdist_df |> arrange(risk),
-            aes(x = risk, y = obs, group = .imp),
-            alpha = 0.1, color = "#38B8F7") +
-  geom_line(data = subdist_df2 |> arrange(risk),
-            aes(x = risk, y = obs_stack),
+  geom_line(data = subdist_df_stack, aes(x = risk, y = obs_stack),
             alpha = 1, color = "blue") +
-  geom_point(data = subdist_df |> arrange(risk), 
-             aes(x = risk, y = obs), 
-             size = 0.01, 
-             stroke = 0, 
-             alpha = 0) + 
   geom_point(data = subdist_df_dec,
              aes(x = risk_dec, y = obs_dec),
              shape = 23,
@@ -684,52 +379,54 @@ ggplot() +
   scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
   theme_bw() + 
   labs(x = "Predicted risks", y = "Observed outcome proportions") + 
-  coord_fixed(ratio = 1, expand = TRUE)  -> p1a
+  # geom_rug(data = subdist_df_stack,
+  #          aes(x = risk, y = obs_stack),
+  #          alpha = 0.1) +
+  coord_fixed(ratio = 1, expand = TRUE)  -> plot_mod0_2y
+
+# Grafico de calibracion con curvas imputadas
+plot_mod0_2y + 
+  geom_line(data = subdist_df_imp, aes(x = risk, y = obs, group = .imp),
+            alpha = 0.1, color = "#38B8F7") -> plot_mod0_imp_2y
+
+gc()
 
 # A 5 años----
 horizon <- 5
 
 vdata <- imp.datosA %>% 
-  mutate(risk2y = kfre_pr(imp.datosA, horizon = 2), 
-         risk5y = kfre_pr(imp.datosA, horizon = 5)) |> 
-  select(.imp, .id, risk2y, risk5y, time5y, eventd5y, time, eventd) |> 
-  mutate(pred = risk5y) |> 
+  rename(pred = risk5y) |> 
   select(.imp, .id, time, eventd, pred) |> 
-  mutate(cll_pred = log(-log(1 - pred)))
+  mutate(cll_pred = log(-log(1 - pred))) 
 
-subdist_list <- future_map(1:max(vdata$.imp),
-                           process_imp_cal_plot, 
-                           vdata = vdata, 
-                           primary_event = primary_event, 
-                           horizon = horizon, 
-                           type = "subdist_hazard", 
-                           n_internal_knots = 5,
-                           .options = furrr_options(seed = 123, 
-                                                    packages = c("riskRegression", 
-                                                                 "survival", 
-                                                                 "splines", 
-                                                                 "cmprsk",
-                                                                 "tidyverse")), 
-                           .progress = TRUE)
+future::plan("multisession", workers = n_cores)
 
-subdist_df <- bind_rows(subdist_list) |>  
-  filter(.imp != 0) |> 
-  arrange(.imp, .id)
+subdist_df_imp <- future_map(1:max(vdata$.imp),
+                         process_imp_cal_plot, 
+                         vdata = vdata, 
+                         primary_event = primary_event, 
+                         horizon = horizon, 
+                         type = "subdist_hazard", 
+                         n_internal_knots = n_internal_knots,
+                         .options = furrr_options(seed = seed, 
+                                                  packages = c("riskRegression", 
+                                                               "survival", 
+                                                               "splines", 
+                                                               "cmprsk",
+                                                               "tidyverse")), 
+                         .progress = TRUE) 
 
-rio::export(subdist_df, here("Data", "Tidy", "subdist_df_3a4_5y.rds"))
+subdist_df_imp <- subdist_df_imp |> 
+  bind_rows() |>  
+  arrange(risk)
 
 # 5 knots seems to give somewhat equivalent graph to pseudo method with bw = 0.05
-vdata_stack <- vdata |> 
-  filter(.imp != 0)
-
-n_internal_knots <- 5
-
-rcs_vdata <- ns(vdata_stack$cll_pred, df = n_internal_knots + 1)
+rcs_vdata <- ns(vdata$cll_pred, df = n_internal_knots + 1)
 
 colnames(rcs_vdata) <- paste0("basisf_", colnames(rcs_vdata))
 # vdata_bis <- cbind.data.frame(vdata_filt, rcs_vdata)
 
-vdata_stack <- vdata_stack |> 
+vdata <- vdata |> 
   bind_cols(as.data.frame(rcs_vdata))
 
 # Use subdistribution hazards (Fine-Gray) model
@@ -741,38 +438,36 @@ form_fgr <- reformulate(
 calib_fgr <- FGR(
   formula = form_fgr,
   cause = primary_event,
-  data = vdata_stack, 
-  variance = FALSE
+  data = vdata, 
+  variance = FALSE, 
+  y = FALSE
 )
 
-obs <- predict(calib_fgr, times = horizon, newdata = vdata_stack)
+obs <- predict(calib_fgr, times = horizon, newdata = vdata)
 
-subdist_df2 <- vdata_stack |>
-   mutate(obs_stack = obs, 
-          risk = pred, 
-          deciles_risk = quantcut(risk, seq(0, 1, by = 0.1)))
+subdist_df_stack <- vdata |>
+  rename(risk = pred) |> 
+  mutate(obs_stack = obs, 
+         deciles_risk = quantcut(risk, seq(0, 1, by = 0.1))) |> 
+  arrange(risk)
 
 # Crea datos con predicciones agrupadas por deciles
-subdist_df_dec <- subdist_df2 |>
+subdist_df_dec <- subdist_df_stack |>
   group_by(deciles_risk) |>
   summarize(
     risk_dec = mean(risk),
-    obs_dec = mean(obs_stack))
+    obs_dec = mean(obs_stack)) |> 
+  arrange(deciles_risk)
+
+rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y.rds"))
+rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_stack_3a4_2y.rds"))
+rio::export(subdist_df_dec, here("Data", "Tidy", "subdist_df_dec_3a4_2y.rds"))
 
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
-  geom_line(data = subdist_df |> arrange(risk),
-            aes(x = risk, y = obs, group = .imp),
-            alpha = 0.1, color = "#38B8F7") +
-  geom_line(data = subdist_df2 |> arrange(risk),
-            aes(x = risk, y = obs_stack),
+  geom_line(data = subdist_df_stack, aes(x = risk, y = obs_stack),
             alpha = 1, color = "blue") +
-  geom_point(data = subdist_df |> arrange(risk), 
-             aes(x = risk, y = obs), 
-             size = 0.01, 
-             stroke = 0, 
-             alpha = 0) + 
   geom_point(data = subdist_df_dec,
              aes(x = risk_dec, y = obs_dec),
              shape = 23,
@@ -782,340 +477,59 @@ ggplot() +
   scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
   theme_bw() + 
   labs(x = "Predicted risks", y = "Observed outcome proportions") + 
-  coord_fixed(ratio = 1, expand = TRUE)  -> p2a
+  # geom_rug(data = subdist_df_stack,
+  #          aes(x = risk, y = obs_stack),
+  #          alpha = 0.1) +
+  coord_fixed(ratio = 1, expand = TRUE)  -> plot_mod0_5y
 
-# Seleccion del grupo: Stages 3b-4----
+# Grafico de calibracion con curvas imputadas
+plot_mod0_5y + 
+  geom_line(data = subdist_df_imp, aes(x = risk, y = obs, group = .imp),
+            alpha = 0.1, color = "#38B8F7") -> plot_mod0_imp_5y
 
-primary_event <- 1
-
-# A 2 años----
-vdata <- imp.datosB %>% 
-  mutate(risk2y = kfre_pr(imp.datosB, horizon = 2), 
-         risk5y = kfre_pr(imp.datosB, horizon = 5)) |> 
-  select(.imp, .id, risk2y, risk5y, time5y, eventd5y, time, eventd) |> 
-  mutate(pred = risk2y) |> 
-  select(.imp, .id, time, eventd, pred) |> 
-  mutate(cll_pred = log(-log(1 - pred)))
-
-horizon <- 2
-subdist_list <- future_map(1:max(vdata$.imp),
-                           process_imp_cal_plot, 
-                           vdata = vdata, 
-                           primary_event = primary_event, 
-                           horizon = horizon, 
-                           type = "subdist_hazard", 
-                           n_internal_knots = 5,
-                           .options = furrr_options(seed = 123, 
-                                                    packages = c("riskRegression", 
-                                                                 "survival", 
-                                                                 "splines", 
-                                                                 "cmprsk",
-                                                                 "tidyverse")), 
-                           .progress = TRUE)
-
-subdist_df <- bind_rows(subdist_list) |>  
-  filter(.imp != 0) |> 
-  arrange(.imp, .id)
-
-rio::export(subdist_df, here("Data", "Tidy", "subdist_df_3b4_2y.rds"))
-
-# 5 knots seems to give somewhat equivalent graph to pseudo method with bw = 0.05
-vdata_stack <- vdata |> 
-  filter(.imp != 0)
-
-n_internal_knots <- 5
-
-rcs_vdata <- ns(vdata_stack$cll_pred, df = n_internal_knots + 1)
-
-colnames(rcs_vdata) <- paste0("basisf_", colnames(rcs_vdata))
-# vdata_bis <- cbind.data.frame(vdata_filt, rcs_vdata)
-
-vdata_stack <- vdata_stack |> 
-  bind_cols(as.data.frame(rcs_vdata))
-
-# Use subdistribution hazards (Fine-Gray) model
-form_fgr <- reformulate(
-  termlabels = colnames(rcs_vdata),
-  response = "Hist(time, eventd)")
-
-# Regress subdistribution of event of interest on cloglog of estimated risks
-calib_fgr <- FGR(
-  formula = form_fgr,
-  cause = primary_event,
-  data = vdata_stack, 
-  variance = FALSE
-)
-
-obs <- predict(calib_fgr, times = horizon, newdata = vdata_stack)
-
-subdist_df2 <- vdata_stack |>
-   mutate(obs_stack = obs, 
-          risk = pred, 
-          deciles_risk = quantcut(risk, seq(0, 1, by = 0.1)))
-
-# Crea datos con predicciones agrupadas por deciles
-subdist_df_dec <- subdist_df2 |>
-  group_by(deciles_risk) |>
-  summarize(
-    risk_dec = mean(risk),
-    obs_dec = mean(obs_stack))
-
-# Grafico de calibracion
-ggplot() +
-  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
-  geom_line(data = subdist_df |> arrange(risk),
-            aes(x = risk, y = obs, group = .imp),
-            alpha = 0.1, color = "#38B8F7") +
-  geom_line(data = subdist_df2 |> arrange(risk),
-            aes(x = risk, y = obs_stack),
-            alpha = 1, color = "blue") +
-  geom_point(data = subdist_df |> arrange(risk), 
-             aes(x = risk, y = obs), 
-             size = 0.01, 
-             stroke = 0, 
-             alpha = 0) + 
-  geom_point(data = subdist_df_dec,
-             aes(x = risk_dec, y = obs_dec),
-             shape = 23,
-             stroke = 0.1,
-             fill = "gold") + 
-  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
-  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
-  theme_bw() + 
-  labs(x = "Predicted risks", y = "Observed outcome proportions") + 
-  coord_fixed(ratio = 1, expand = TRUE)  -> p1b
-
-
-# A 5 años----
-vdata <- imp.datosB %>% 
-  mutate(risk2y = kfre_pr(imp.datosB, horizon = 2), 
-         risk5y = kfre_pr(imp.datosB, horizon = 5)) |> 
-  select(.imp, .id, risk2y, risk5y, time5y, eventd5y, time, eventd) |> 
-  mutate(pred = risk5y) |> 
-  select(.imp, .id, time, eventd, pred) |> 
-  mutate(cll_pred = log(-log(1 - pred)))
-
-horizon <- 5
-subdist_list <- future_map(1:max(vdata$.imp),
-                           process_imp_cal_plot, 
-                           vdata = vdata, 
-                           primary_event = primary_event, 
-                           horizon = horizon, 
-                           type = "subdist_hazard", 
-                           n_internal_knots = 5,
-                           .options = furrr_options(seed = 123, 
-                                                    packages = c("riskRegression", 
-                                                                 "survival", 
-                                                                 "splines", 
-                                                                 "cmprsk",
-                                                                 "tidyverse")), 
-                           .progress = TRUE)
-
-subdist_df <- bind_rows(subdist_list) |>  
-  filter(.imp != 0) |> 
-  arrange(.imp, .id)
-
-rio::export(subdist_df, here("Data", "Tidy", "subdist_df_3b4_5y.rds"))
-
-# 5 knots seems to give somewhat equivalent graph to pseudo method with bw = 0.05
-vdata_stack <- vdata |> 
-  filter(.imp != 0)
-
-n_internal_knots <- 5
-
-rcs_vdata <- ns(vdata_stack$cll_pred, df = n_internal_knots + 1)
-
-colnames(rcs_vdata) <- paste0("basisf_", colnames(rcs_vdata))
-# vdata_bis <- cbind.data.frame(vdata_filt, rcs_vdata)
-
-vdata_stack <- vdata_stack |> 
-  bind_cols(as.data.frame(rcs_vdata))
-
-# Use subdistribution hazards (Fine-Gray) model
-form_fgr <- reformulate(
-  termlabels = colnames(rcs_vdata),
-  response = "Hist(time, eventd)")
-
-# Regress subdistribution of event of interest on cloglog of estimated risks
-calib_fgr <- FGR(
-  formula = form_fgr,
-  cause = primary_event,
-  data = vdata_stack, 
-  variance = FALSE
-)
-
-obs <- predict(calib_fgr, times = horizon, newdata = vdata_stack)
-
-subdist_df2 <- vdata_stack |>
-   mutate(obs_stack = obs, 
-          risk = pred, 
-          deciles_risk = quantcut(risk, seq(0, 1, by = 0.1)))
-
-# Crea datos con predicciones agrupadas por deciles
-subdist_df_dec <- subdist_df2 |>
-  group_by(deciles_risk) |>
-  summarize(
-    risk_dec = mean(risk),
-    obs_dec = mean(obs_stack))
-
-# Grafico de calibracion
-ggplot() +
-  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
-  geom_line(data = subdist_df |> arrange(risk),
-            aes(x = risk, y = obs, group = .imp),
-            alpha = 0.1, color = "#38B8F7") +
-  geom_line(data = subdist_df2 |> arrange(risk),
-            aes(x = risk, y = obs_stack),
-            alpha = 1, color = "blue") +
-  geom_point(data = subdist_df |> arrange(risk), 
-             aes(x = risk, y = obs), 
-             size = 0.01, 
-             stroke = 0, 
-             alpha = 0) + 
-  geom_point(data = subdist_df_dec,
-             aes(x = risk_dec, y = obs_dec),
-             shape = 23,
-             stroke = 0.1,
-             fill = "gold") + 
-  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
-  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
-  theme_bw() + 
-  labs(x = "Predicted risks", y = "Observed outcome proportions") + 
-  coord_fixed(ratio = 1, expand = TRUE)  -> p2b
-
-p1a <- p1a + 
-  labs(title = "CKD Stages 3a-3b-4\n(2 year KFRE)") + 
-  theme(plot.title = element_text(hjust = 0.5))
-p2a <- p2a + labs(title = "CKD Stages 3a-3b-4\n(5 year KFRE)") + 
-  theme(plot.title = element_text(hjust = 0.5))
-p1b <- p1b + labs(title = "CKD Stages 3b-4\n(2 year KFRE)") + 
-  theme(plot.title = element_text(hjust = 0.5))
-p2b <- p2b + labs(title = "CKD Stages 3b-4\n(5 year KFRE)") + 
+## Grafico final
+plot_mod0_2y <- plot_mod0_2y + 
+  labs(title = "Modelo Original\n(2 year KFRE)") + 
   theme(plot.title = element_text(hjust = 0.5))
 
-plot_calibration <- (p1a | p2a) / (p1b | p2b) + plot_annotation(tag_levels = 'A')
+plot_mod0_5y <- plot_mod0_5y + 
+  labs(title = "Modelo Original\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+plot_mod0_imp_2y <- plot_mod0_imp_2y + 
+  labs(title = "Modelo Original\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+plot_mod0_imp_5y <- plot_mod0_imp_5y + 
+  labs(title = "Modelo Original\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+plot_cal_mod0 <- plot_mod0_2y / plot_mod0_5y
+
+export(plot_mod0_2y, here("Data", "Tidy", "plot_mod0_2y.rds"))
+export(plot_mod0_5y, here("Data", "Tidy", "plot_mod0_5y.rds"))
+export(plot_cal_mod0, here("Data", "Tidy", "plot_cal_mod0.rds"))
+
+export(plot_mod0_imp_2y, here("Data", "Tidy", "plot_mod0_imp_2y.rds"))
+export(plot_mod0_imp_5y, here("Data", "Tidy", "plot_mod0_imp_5y.rds"))
 
 ggsave(filename = "Plot_Calibration_imputed.png", 
        device = "png", 
-       plot = plot_calibration, 
+       plot = plot_cal_mod0, 
        path = here("Figures"), 
        scale = 2, 
        width = 12, 
        height = 12,
        units = "cm", 
        dpi = 600)
+
+gc()
 ```
 
-### Fig 3
-
 ```{r}
-#| label: fig-loess-pseudo-ggpplot
-#| fig.width: 7
-#| fig.height: 7
 #| fig.align: center
 #| fig-cap: "Calibration curves for each group and prediction horizon"
 knitr::include_graphics(here("Figures", "Plot_Calibration_imputed.png"))
-```
-
-
-## Extra
-
-
-```{r}
-# # Calibration plot (pseudo-obs approach) ----------------------------------
-# # First compute riskRegression::Score()
-# # Ejecutar la función en paralelo para cada grupo de imputación
-# pseudos_list <- future_map(0:max(vdata$.imp),
-#                            process_imp_cal_plot, 
-#                            vdata = vdata, 
-#                            primary_event = primary_event, 
-#                            horizon = horizon, 
-#                            type = "pseudoval_loess", 
-#                            .options = furrr_options(seed = 123, 
-#                                                     packages = c("riskRegression", 
-#                                                                  "survival", 
-#                                                                  "tidyverse")), 
-#                            .progress = TRUE)
-# 
-# pseudos_df <- bind_rows(pseudos_list) |> 
-#   arrange(.imp, .id)
-# 
-# # pseudos.imp <- as.mids(pseudos_df)
-# # pseudos.imp$loggedEvents
-# 
-# pseudos_df <- pseudos_df %>% 
-#   filter(.imp != 0) |> 
-#   arrange(risk)
-# 
-# # Definimos una función que ajusta el modelo y devuelve las predicciones
-# model_and_predict <- function(data) {
-#   # model <- lm(pseudovalue ~ ns(risk, df = 6), data = data)
-#   model <- loess(pseudovalue ~ risk, data = data, degree = 1)
-#   predict(model, newdata = data)
-# }
-# 
-# # Suponiendo que 'pseudos_df' es tu dataframe
-# pseudos_df <- pseudos_df %>%
-#   as_tibble() %>%
-#   group_by(.imp) %>%
-#   group_split()  # Divide el dataframe en una lista de dataframes por grupo de imputación
-# 
-# # Aplica la función en paralelo y combina los resultados
-# predictions <- future_map(pseudos_df, model_and_predict,
-#                           .options = furrr_options(seed = 123, 
-#                                                    packages = c("splines")), 
-#                           .progress = TRUE)
-# 
-# # Añade las predicciones de vuelta al dataframe original
-# pseudos_df <- bind_rows(pseudos_df)  # Si se necesita combinar nuevamente en un solo dataframe
-# 
-# # Crea datos con predicciones suavizadas
-# pseudos_df2 <- pseudos_df |> 
-#   mutate(
-#     obs = unlist(predictions),    # Añade las predicciones como una nueva columna
-#     deciles_risk = quantcut(risk, seq(0, 1, by = 0.001))  # Añade cuantiles de riesgo stacked
-#   )
-# 
-# # Modelo con todos los datos stacked
-# # model_stack <- lm(pseudovalue ~ ns(risk, df = 6), data = pseudos_df2)
-# tic()
-# # model <- loess(pseudovalue ~ risk, data = pseudos_df2, degree = 1)
-# toc()
-# 
-# pseudos_df2 <- pseudos_df2 |> 
-#    mutate(obs_stack = predict(model_stack, newdata = pseudos_df2))
-# 
-# # Crea datos con predicciones agrupadas por deciles
-# pseudos_df_dec <- pseudos_df2 |> 
-#   group_by(deciles_risk) |> 
-#   summarize(risk_dec = mean(risk), 
-#          obs_dec = mean(obs))
-# 
-# # Grafico de calibracion
-# ggplot() +
-#   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
-#   geom_line(data = pseudos_df2 |> arrange(risk), 
-#             aes(x = risk, y = obs, group = .imp), 
-#             alpha = 0.1) + 
-#   geom_line(data = pseudos_df2 |> arrange(risk), 
-#             aes(x = risk, y = obs_stack), 
-#             alpha = 1, color = "blue") + 
-#   # geom_point(aes(x = risk, y = obs), size = 0.01, alpha = 0) + 
-#   scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(-0.1, 1)) +
-#   scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(-0.1, 1)) +
-#   theme_bw() + 
-#   xlab("Predicted risks") + 
-#   ylab("Observed outcome proportions") + 
-#   coord_fixed(ratio = 1, expand = TRUE) + 
-#   geom_point(data = pseudos_df_dec, 
-#              aes(x = risk_dec, y = obs_dec), 
-#              shape = 23, 
-#              stroke = 1,
-#              fill = "gold") -> p1
-# 
-# # ggMarginal(p1, type = "histogram", fill = "purple") -> p1a
-# 
-# p1
 ```
 
 ## Ticket de Reprocubilidad

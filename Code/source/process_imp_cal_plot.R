@@ -106,9 +106,10 @@ process_imp_cal_plot <- function(i, vdata, primary_event, horizon, type, n_inter
       formula = form_fgr,
       cause = primary_event,
       data = vdata_bis, 
-      variance = FALSE
+      variance = FALSE, 
+      y = FALSE
     )
-    
+  
     obs <- predict(calib_fgr, times = horizon, newdata = vdata_bis)
     
     # Add observed and predicted together in a data frame
