@@ -18,6 +18,11 @@ execute:
 ## Cargar paquetes
 
 ```{r}
+#| label: load-packages
+#| include: true
+
+rm(list = ls())
+
 if (!require("pacman")) {
   install.packages("pacman")
 }
@@ -58,16 +63,31 @@ Vamos a transformar el nombre de las variables:
 
 ```{r}
 data_dial_sig <- import(here("Data", "Raw", "25082023_bd_dial_sig.csv"))
+```
+
+```{r}
+glimpse(data_dial_sig)
+```
+```{r}
+data_dial_sig |> count(`TIPO DE DOC`)
+```
+
+
+```{r}
 head(data_dial_sig, 10)
 ```
 
 ```{r}
 data_dial_sig2 <- data_dial_sig |> 
   rename(auto_cor = AUTOGENERADO, 
-         dial_date = `FECHA DE 1ERA HEMODIALISIS`) |> 
+         dial_date = `FECHA DE 1ERA HEMODIALISIS`, 
+         tipo_doc = `TIPO DE DOC`, 
+         dni = `NRO DE DOC`) |> 
   mutate(auto_cor = str_trim(auto_cor), 
-         dial_date = dmy(dial_date)) |> 
-  select(auto_cor, dial_date)
+         dial_date = dmy(dial_date), 
+         tipo_doc = case_when(tipo_doc %in% c("L", "D") ~ "DNI/LE",
+                              TRUE ~ "Otro")) |> 
+  select(tipo_doc, dni, auto_cor, dial_date)
 
 head(data_dial_sig2)
 ```
@@ -86,10 +106,14 @@ data_dial_sscc
 ```{r}
 data_dial_sscc2 <- data_dial_sscc |> 
   rename(auto_cor = AUTOGENERADO, 
-         dial_date = `FECHA 1ERA HEMODIALISIS`) |> 
+         dial_date = `FECHA 1ERA HEMODIALISIS`, 
+         tipo_doc = `TIPO DE DOC`, 
+         dni = `NRO DE DOC`) |> 
   mutate(auto_cor = str_trim(auto_cor), 
-         dial_date = dmy(dial_date)) |> 
-  select(auto_cor, dial_date)
+         dial_date = dmy(dial_date), 
+         tipo_doc = case_when(tipo_doc %in% c("L", "D") ~ "DNI/LE",
+                              TRUE ~ "Otro")) |> 
+  select(tipo_doc, dni, auto_cor, dial_date)
 
 head(data_dial_sscc2)
 ```
@@ -139,6 +163,10 @@ data_dial_cnsr |>
   get_dupes(auto_cor)
 ```
 
+```{r}
+glimpse(data_dial_cnsr)
+```
+
 #### Datos basados en SGH:
 
 Vamos a usar como proxy los CIE-10 para detectar el acceso a hemodialisis: 
@@ -154,7 +182,16 @@ En base a la tabla de líneas arriba, vamos a detectar los siguientes CIE-10 com
 - Z94.0 (Kidney transplant status)
 
 ```{r}
-data_dial_sgh_emg <- import(here("Data", "Raw", "07092023_bd_dial_sgh_emerg.csv")) |> 
+data_dial_sgh_emg <- import(here("Data", "Raw", "07092023_bd_dial_sgh_emerg.csv"))
+```
+
+```{r}
+glimpse(data_dial_sgh_emg)
+```
+
+
+```{r}
+data_dial_sgh_emg <- data_dial_sgh_emg |> 
   mutate(ESCDIAG = str_trim(ESCDIAG), 
          ESDIAG2 = str_trim(ESDIAG2)) |> 
   select(ESAUTASE, ESFECHA, ESCDIAG, ESDIAG2) |> 
@@ -264,6 +301,11 @@ data_dial_sgh |>
   head(10)
 ```
 
+```{r}
+glimpse(data_dial_sgh)
+```
+
+
 #### Fusion de datos CNSR + SGH
 
 ```{r}
@@ -272,6 +314,10 @@ data_dial <- data_dial_sgh |>
 
 head(data_dial, 10)
 dim(data_dial)
+```
+
+```{r}
+glimpse(data_dial)
 ```
 
 Por cada individuo (autogenerado), vamos ahora a ordenar de menor fecha a mayor fecha y quedarnos solo con el de menor fecha (primera fila) eliminado los demás duplicados de auto_cor:
@@ -284,12 +330,26 @@ data_dial2 <- data_dial |>
 head(data_dial2)
 ```
 
+```{r}
+glimpse(data_dial2)
+```
+
+
 ### Datos de fallecimiento
+
+#### Fuente Oficina de Seguros
 
 ```{r}
 data_fallec <- import(here("Data", "Raw", "02082023_bd_fallec.csv")) |> 
   clean_names()
+```
 
+```{r}
+glimpse(data_fallec)
+```
+
+
+```{r}
 data_fallec |> 
   head(10)
 ```
@@ -308,6 +368,38 @@ data_fallec |>
   head(10)
 ```
 
+```{r}
+glimpse(data_fallec)
+```
+
+#### Fuente SINADEF
+
+```{r}
+data_fallec_sinadef <- import(here("Data", "Raw", "sinadef2017_2023.csv")) |> 
+  clean_names()
+```
+
+```{r}
+glimpse(data_fallec_sinadef)
+```
+
+```{r}
+data_fallec_sinadef  <- data_fallec_sinadef  |> 
+  select(tipo_doc, documento, fallecido, fech_fallecimiento) |> 
+  mutate(fuente = "data_fallec_sinadef") |> 
+  filter(tipo_doc == "DNI/LE")
+
+head(data_fallec_sinadef, 10)
+```
+
+```{r}
+data_fallec_sinadef |> 
+  count(tipo_doc)
+```
+
+```{r}
+glimpse(data_fallec_sinadef)
+```
 
 ### Datos del hospital rebagliati
 
@@ -315,13 +407,24 @@ data_fallec |>
 
 ```{r}
 data_pred_reba <- import(here("Data", "Raw", "bd_predictores_reba_lima.csv")) |> 
-  clean_names() 
+  clean_names() |> 
+  mutate(cas_fuente = "JB")
 ```
 
+```{r}
+glimpse(data_pred_reba)
+```
 
 ```{r}
 data_pred_reba |> 
   head(10)
+```
+
+Notar que los datos del Rebagliati no contienen la vigilancia que hace el Hospital Kaelin, que pertenece a la Red Rebagliati, debido a que es una Asociacion Publico Privada con su propio manejo de Salud Renal.
+
+```{r}
+data_pred_reba |> 
+  count(cas)
 ```
 
 ```{r}
@@ -343,7 +446,7 @@ data_pred_reba2 <- data_pred_reba |>
          dm = as.numeric(dm), 
          assess_date = dmy(assess_date),
          auto_cor = str_trim(auto_cor), 
-         cas = "REBAGLIATI", 
+         cas = "REBAGLIATI - JB", 
          eGFR_ckdepi = case_when(
            crea <= 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-0.329)) * (0.993 ^ (age)) * 1, 
            crea > 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-1.209)) * (0.993 ^ (age)) * 1, 
@@ -352,6 +455,10 @@ data_pred_reba2 <- data_pred_reba |>
            TRUE ~ as.numeric(NA)
          )) |> 
   select(auto_cor, sex, age, hta, dm, cas, cas_hosp, assess_date, crea, eGFR_ckdepi, urine_album, urine_crea, acr)
+```
+
+```{r}
+glimpse(data_pred_reba2)
 ```
 
 #### Inspeccionar datos perdidos
@@ -365,23 +472,209 @@ gg_miss_upset(data_pred_reba2)
 ```
 
 ```{r}
-gg_miss_upset(data_pred_reba2 |> select(eGFR_ckdepi, acr))
-```
-
-```{r}
-data_pred_reba3 <- data_pred_reba2 |> 
-  drop_na(eGFR_ckdepi, acr)
+gg_miss_upset(data_pred_reba2 |> 
+                select(eGFR_ckdepi, acr))
 ```
 
 #### Fusionar datos de dialisis y mortalidad con datos de Rebagliati
 
+##### Recuperar datos de DNI
+
+```{r}
+data_fallec_dni <- data_fallec |> 
+  mutate(dni = case_when(dni %in% c("", "----") ~ as.character(NA), 
+                         TRUE ~ dni)) |> 
+  select(-death_date, -fuente) |> 
+  arrange(dni)
+```
+
+```{r}
+data_dial2 |> 
+  glimpse()
+```
+
+
+```{r}
+data_dial2_dni <- data_dial2 |> 
+  mutate(dni = case_when(dni %in% c("", "----") ~ as.character(NA), 
+                         TRUE ~ dni)) |> 
+  select(-dial_date, -diag_cie) |> 
+  arrange(dni)
+
+data_dial2 |> 
+  arrange(dni)
+```
+
+```{r}
+data_fallec_sinadef |> 
+  glimpse()
+```
+
+```{r}
+data_fallec_sinadef |> 
+  arrange(documento)
+```
+
+
 ```{r}
 data_pred_reba3 <- data_pred_reba2 |> 
-  left_join(data_fallec, by = "auto_cor") |> 
-  left_join(data_dial2, by = "auto_cor")
+  left_join(data_fallec_dni, 
+            by = "auto_cor") |>   
+  left_join(data_dial2_dni |> select(-dial), 
+            by = "auto_cor")   
 
-head(data_pred_reba3, 10)
+glimpse(data_pred_reba3)
 ```
+
+```{r}
+data_pred_reba3 <- data_pred_reba3 |> 
+  mutate(dif_dni = case_when(dni.y == dni.x ~ "iguales", 
+                             dni.y != dni.x ~ "diferentes"))
+
+data_pred_reba3 |> 
+  count(dif_dni)
+```
+
+En el caso de los DNI diferentes, vemos que podemos recsatar los valores
+
+```{r}
+data_pred_reba3 |> 
+  filter(dif_dni == "diferentes") 
+```
+
+```{r}
+data_pred_reba3 |> 
+  filter(dif_dni == "iguales") 
+```
+
+En este caso, una de las dos filas tiene dni o ninguna ,asi que es posible recuperar los datos de dni para reutilizarlos luego:
+
+
+```{r}
+data_pred_reba3 |> 
+  filter(is.na(dif_dni)) |> 
+  arrange(dni.y) 
+```
+
+```{r}
+data_pred_reba3 <- data_pred_reba3 |> 
+  mutate(dni = case_when(dif_dni == "diferentes" & dni.x == "----" ~ dni.y, 
+                         dif_dni == "diferentes" & dni.x != "----" ~ dni.x, 
+                         dif_dni == "iguales" ~ dni.x, 
+                         is.na(dif_dni) & !is.na(dni.x) ~ dni.x, 
+                         is.na(dif_dni) & !is.na(dni.y) ~ dni.y, 
+                         TRUE ~ dni.x))
+```
+
+
+```{r}
+data_pred_reba3 |> 
+  arrange(dni.x)
+```
+```{r}
+data_pred_reba3 <- data_pred_reba3 |> 
+  select(-dni.y, -dif_dni, -dni.x)
+```
+
+```{r}
+data_pred_reba3
+```
+
+            
+##### Fusionar primero muerte
+
+
+```{r}
+data_pred_reba3 <- data_pred_reba3 |> 
+  left_join(data_fallec |> select(-dni), 
+            by = "auto_cor") |>   
+  left_join(data_fallec |> select(-auto_cor), 
+            by = "dni") |>   
+  left_join(data_fallec_sinadef, 
+            by = c("dni" = "documento"))
+
+data_pred_reba3 |> 
+  glimpse()
+```
+
+```{r}
+data_pred_reba3b <- data_pred_reba3 |> 
+  mutate(fech_fallecimiento = as.Date(fech_fallecimiento), 
+         date_death_igual1 = (death_date.x == death_date.y ), 
+         date_death_igual2 = (fech_fallecimiento == death_date.y))
+
+ data_pred_reba3b |> 
+   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
+          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
+   arrange(date_death_igual1) |> 
+   filter(date_death_igual1 == TRUE)
+```
+```{r}
+ data_pred_reba3b |> 
+   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
+          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
+   arrange(date_death_igual1) |> 
+   filter(date_death_igual1 == FALSE)
+```
+
+```{r}
+ data_pred_reba3b |> 
+   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
+          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
+   arrange(date_death_igual1) |> 
+   filter(is.na(date_death_igual1))
+```
+Respecto a death_date.x y death_date.y, ambos dan lo mismo, nos quedaremos con death_date.x
+
+```{r}
+ data_pred_reba3b |> 
+   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
+          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
+   arrange(date_death_igual2) |> 
+   filter(date_death_igual2 == TRUE)
+```
+
+```{r}
+ data_pred_reba3b |> 
+   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
+          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
+   arrange(date_death_igual2) |> 
+   filter(date_death_igual2 == FALSE)
+```
+
+```{r}
+ data_pred_reba3b |> 
+   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
+          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
+   arrange(date_death_igual2) |> 
+   filter(is.na(date_death_igual2)) |> 
+  arrange(fech_fallecimiento)
+```
+
+Por tanto vamos a editar la variable death_date. nos quedamos con death_date.x porque es igual que death_date.y. Luego, cuando sean diferentes, nos quedamos con fech_fallecimiento y si hay algun missing en uno, pero no en el otro, los intercambiamos.
+
+
+```{r}
+data_pred_reba3 <- data_pred_reba3b  |> 
+  mutate(death_date = case_when(date_death_igual2 == FALSE ~ fech_fallecimiento, 
+                                is.na(date_death_igual2) & 
+                                  !is.na(death_date.x) ~ death_date.x, 
+                                is.na(date_death_igual2) & 
+                                  !is.na(fech_fallecimiento) ~ fech_fallecimiento, 
+                                TRUE ~ as.Date(NA))
+         ) |> 
+  select(-death_date.x, -death_date.y, -date_death_igual1, 
+         -date_death_igual2, -fech_fallecimiento)
+```
+
+Ahora que se cuenta con los datos corregidos, verificamos:
+
+```{r}
+data_pred_reba3 |> 
+  count(death_date, .drop = FALSE) |> 
+  arrange(death_date)
+```
+
 
 ```{r}
 data_pred_reba3 <- data_pred_reba3  |> 
@@ -639,16 +932,6 @@ data_pred_kaelin2 <- data_pred_kaelin |>
 ```
 
 #### Fusionar datos de muerte de sinadef
-
-```{r}
-data_fallec_sinadef <- import(here("Data", "Raw", "sinadef2017_2023.csv")) |> 
-  clean_names() |> 
-  select(tipo_doc, documento, fallecido, fech_fallecimiento) |> 
-  mutate(fuente = "data_fallec_sinadef") |> 
-  filter(tipo_doc == "DNI/LE")
-
-head(data_fallec_sinadef, 10)
-```
 
 ```{r}
 data_pred_kaelin3 <- data_pred_kaelin2 |> 

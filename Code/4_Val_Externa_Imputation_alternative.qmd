@@ -163,7 +163,7 @@ imp.datosA <- imp.datosA |>
          eventdf = factor(eventd)) |> 
   select(.imp, .id, time, eventd, eventdf, risk2y, risk5y) |>  
   filter(.imp != 0) |> 
-  filter(.imp <= 3) ####
+  filter(.imp <= 20) ####
 ```
 
 
