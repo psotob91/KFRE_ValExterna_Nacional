@@ -99,7 +99,8 @@ pacman::p_load(
   mice, 
   rms, 
   naniar, 
-  DescTools
+  DescTools,
+  rio
 )
 
 
@@ -131,7 +132,7 @@ source(here("Code", "source", "kfre_pi.coef.csh.R"))
 # Import data
 dataA.imp <- readRDS(here::here("Data", "Tidy", "data_impA.rds")) 
 
-dataA <- complete(dataA.imp, action = "long", include = TRUE)
+dataA <- complete(dataA.imp, action = "long", include = TRUE)  
 
 dataA <- dataA |> 
   mutate(beta.sum = kfre_pi(dataA), 
@@ -139,7 +140,7 @@ dataA <- dataA |>
            eventd5y %in% c(0, 2) ~ 0, 
            eventd5y %in% c(1)  ~ 1, 
            TRUE ~ as.numeric(NA)
-         ))
+         )) 
 
 # dataA.imp <- as.mids(dataA)
 # dataA.imp$loggedEvents
@@ -163,6 +164,16 @@ El nuevo factor para recalcular el riesgo  basal (recalibrado) a 5 anios es el s
 
 Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado solo con la actualización del riesgo basal:
 
+
+```{r}
+df_recal_modA <- p2y[[1]] |> 
+  bind_rows(p5y[[1]])
+
+export(df_recal_modA, here("Data", "Tidy", "equations", "df_recal_modA.rds"))
+head(df_recal_modA)
+```
+
+
 ## Reestimar coeficientes mediante Cox: 
 
 Primero ajustamos nuevamente una regresión del cox sobre el índice pronósitco y recalculamos el coeficiente para este
@@ -180,6 +191,15 @@ p2y_2
 ```
 Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es `r p2y_2$fc.aj.coef` y la supervivencia basal ajustada es `r p2y_2$fc.aj.risk.basal`.
 
+Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado  con la actualización del riesgo basal y de coeficiente:
+
+```{r}
+df_recal_modB <- p2y_2[[1]] |> 
+  bind_rows(p5y_2[[1]])
+
+export(df_recal_modB, here("Data", "Tidy", "equations", "df_recal_modB.rds"))
+head(df_recal_modB)
+```
 
 ## Reestimar riesgo basal usando Cause-specific Hazard Models:
 
@@ -194,9 +214,18 @@ p5y_csh
 p2y_csh <- recal.risk.basal.csh(dataA, 2)
 p2y_csh
 ```
+
 El nuevo factor para recalcular el riesgo  basal (recalibrado) a 5 anios es el siguiente `r p5y_csh$fc.aj.risk.basal.csh`. A 2 anios es el siguiente  `r p2y_csh$fc.aj.risk.basal.csh`.
 
 Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado solo con la actualización del riesgo basal:
+
+```{r}
+df_recal_modC <- p2y_csh[[1]] |> 
+  bind_rows(p5y_csh[[1]])
+
+export(df_recal_modC, here("Data", "Tidy", "equations", "df_recal_modC.rds"))
+head(df_recal_modC)
+```
 
 
 ## Reestimar coeficientes mediante Cause-specific Hazard Models: 
@@ -218,30 +247,45 @@ p2y_2.csh
 
 Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es `r p2y_2.csh$fc.aj.coef.csh` y la supervivencia basal ajustada es `r p2y_2.csh$fc.aj.risk.basal.csh`.
 
+Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado con la actualización del riesgo basal y los coeficientes:
+
+```{r}
+df_recal_modD <- p2y_2.csh[[1]] |> 
+  bind_rows(p5y_2.csh[[1]])
+
+export(df_recal_modD, here("Data", "Tidy", "equations", "df_recal_modD.rds"))
+head(df_recal_modD)
+```
+
 ## Tabla de recalibracion
 
 ```{r}
 datos.recal <- data.frame(
+  
   metodo = rep(c("A", "B", "C", "D"), each = 2),
+  
   year = rep(c(2, 5), 2), 
   
-  sobrev_recal = c(p2y$fc.aj.risk.basal.mean, 
-                   p5y$fc.aj.risk.basal.mean, 
-                   p2y_2$fc.aj.risk.basal, 
-                   p5y_2$fc.aj.risk.basal,
-                   p2y_csh$fc.aj.risk.basal.csh, 
-                   p5y_csh$fc.aj.risk.basal.csh, 
-                   p2y_2.csh$fc.aj.risk.basal.csh, 
-                   p5y_2.csh$fc.aj.risk.basal.csh), 
-  fc_coef = c("No aplica", 
-              "No aplica", 
-              p2y_2$fc.aj.coef, 
-              p5y_2$fc.aj.coef, 
-              "No aplica", 
-              "No aplica", 
-              p2y_2.csh$fc.aj.coef.csh, 
-              p5y_2.csh$fc.aj.coef.csh)
+  sobrev_recal = c(p2y$st0_pool, 
+                   p5y$st0_pool, 
+                   p2y_2$st0_pool, 
+                   p5y_2$st0_pool,
+                   p2y_csh$st0_pool, 
+                   p5y_csh$st0_pool, 
+                   p2y_2.csh$st0_pool, 
+                   p5y_2.csh$st0_pool), 
+  
+  fc_coef = c(p2y$fc_coef_pool, 
+              p5y$fc_coef_pool, 
+              p2y_2$fc_coef_pool, 
+              p5y_2$fc_coef_pool, 
+              p2y_csh$fc_coef_pool, 
+              p5y_csh$fc_coef_pool, 
+              p2y_2.csh$fc_coef_pool, 
+              p5y_2.csh$fc_coef_pool)
 )
+
+export(datos.recal, here("Data", "Tidy", "equations", "recal_loads.rds" ))
 
 datos.recal |> 
   kbl() |> 
