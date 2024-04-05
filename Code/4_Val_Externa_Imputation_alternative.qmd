@@ -162,7 +162,7 @@ imp.datosA <- imp.datosA |>
          risk5y = kfre_pr(imp.datosA, 5), 
          eventdf = factor(eventd)) |> 
   select(.imp, .id, time, eventd, eventdf, risk2y, risk5y) |>  
-  filter(.imp != 0)
+  filter(.imp != 0) 
 ```
 
 

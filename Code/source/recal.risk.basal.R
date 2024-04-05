@@ -2,6 +2,7 @@
 recal.risk.basal <- function(data, horizon) {
   
   fc.aj.risk.basal <- rep(NA, max(data$.imp))
+  imputations <- rep(NA, max(data$.imp))
   
   data <- data |> 
     mutate(beta.sum = kfre_pi(data))
@@ -20,10 +21,19 @@ recal.risk.basal <- function(data, horizon) {
                           type = "survival", 
                           confint = TRUE, 
                           se = TRUE)
-    
+    imputations[i] <- i
     fc.aj.risk.basal[i] <- p1
+  
   }
   
-  return(list(fc.aj.risk.basal.imp = fc.aj.risk.basal, 
-              fc.aj.risk.basal.mean = mean(fc.aj.risk.basal)))
+  recal_df_imp <- data.frame(
+    year = horizon, 
+    .imp = imputations, 
+    st0_imp = fc.aj.risk.basal, 
+    fc_coef_imp = 1
+  )
+  
+  return(list(recal_df_imp = recal_df_imp, 
+              st0_pool = mean(fc.aj.risk.basal), 
+              fc_coef_pool = 1))
 }

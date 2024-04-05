@@ -3,6 +3,7 @@ recal.risk.coef.csh <- function(data, horizon) {
   
   fc.aj.risk.basal <- rep(NA, max(data$.imp))
   fc.aj.coef <- rep(NA, max(data$.imp))
+  imputations <- rep(NA, max(data$.imp))
   
   for (i in 1:max(data$.imp)) {
     
@@ -33,10 +34,17 @@ recal.risk.coef.csh <- function(data, horizon) {
     
     fc.aj.risk.basal[i] <- p2
     fc.aj.coef[i] <- fit[["models"]][["Cause 1"]][["coefficients"]][["beta.sum"]]
+    imputations[i] <- i
   }
   
-  return(list(fc.aj.risk.basal.imp.csh = fc.aj.risk.basal, 
-              fc.aj.risk.basal.csh = mean(fc.aj.risk.basal), 
-              fc.aj.coef.imp.csh = fc.aj.coef, 
-              fc.aj.coef.csh = mean(fc.aj.coef)))
+  recal_df_imp <- data.frame(
+    year = horizon, 
+    .imp = imputations, 
+    st0_imp = fc.aj.risk.basal, 
+    fc_coef_imp = fc.aj.coef
+  )
+  
+  return(list(recal_df_imp, 
+              st0_pool = mean(fc.aj.risk.basal), 
+              fc_coef_pool = mean(fc.aj.coef)))
 }

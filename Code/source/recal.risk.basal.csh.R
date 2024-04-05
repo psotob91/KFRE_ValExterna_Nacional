@@ -2,6 +2,7 @@
 recal.risk.basal.csh <- function(data, horizon) {
   
   fc.aj.risk.basal <- rep(NA, max(data$.imp))
+  imputations <- rep(NA, max(data$.imp))
   
   for (i in 1:max(data$.imp)) {
     
@@ -21,8 +22,17 @@ recal.risk.basal.csh <- function(data, horizon) {
                                     cause = 1))
     
     fc.aj.risk.basal[i] <- p1
+    imputations[i] <- i
   }
   
-  return(list(fc.aj.risk.basal.imp.csh = fc.aj.risk.basal, 
-              fc.aj.risk.basal.csh = mean(fc.aj.risk.basal)))
+  recal_df_imp <- data.frame(
+    year = horizon, 
+    .imp = imputations, 
+    st0_imp = fc.aj.risk.basal, 
+    fc_coef_imp = 1
+  )
+  
+  return(list(recal_df_imp = recal_df_imp, 
+              st0_pool = mean(fc.aj.risk.basal), 
+              fc_coef_pool = 1))
 }

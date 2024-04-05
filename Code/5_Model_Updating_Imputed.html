@@ -4640,12 +4640,13 @@ window.onload = function() {
 <span id="cb1-73"><a href="#cb1-73" aria-hidden="true" tabindex="-1"></a>  mice, </span>
 <span id="cb1-74"><a href="#cb1-74" aria-hidden="true" tabindex="-1"></a>  rms, </span>
 <span id="cb1-75"><a href="#cb1-75" aria-hidden="true" tabindex="-1"></a>  naniar, </span>
-<span id="cb1-76"><a href="#cb1-76" aria-hidden="true" tabindex="-1"></a>  DescTools</span>
-<span id="cb1-77"><a href="#cb1-77" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb1-78"><a href="#cb1-78" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-76"><a href="#cb1-76" aria-hidden="true" tabindex="-1"></a>  DescTools,</span>
+<span id="cb1-77"><a href="#cb1-77" aria-hidden="true" tabindex="-1"></a>  rio</span>
+<span id="cb1-78"><a href="#cb1-78" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb1-79"><a href="#cb1-79" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-80"><a href="#cb1-80" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-81"><a href="#cb1-81" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">require</span>(<span class="st">&quot;smplot2&quot;</span>)) devtools<span class="sc">::</span><span class="fu">install_github</span>(<span class="st">&#39;smin95/smplot2&#39;</span>, <span class="at">force =</span> <span class="cn">TRUE</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb1-81"><a href="#cb1-81" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-82"><a href="#cb1-82" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">require</span>(<span class="st">&quot;smplot2&quot;</span>)) devtools<span class="sc">::</span><span class="fu">install_github</span>(<span class="st">&#39;smin95/smplot2&#39;</span>, <span class="at">force =</span> <span class="cn">TRUE</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <section id="funciones" class="level4" data-number="2.0.1">
 <h4 data-number="2.0.1" class="anchored" data-anchor-id="funciones"><span class="header-section-number">2.0.1</span> Funciones</h4>
@@ -4670,7 +4671,7 @@ window.onload = function() {
 <div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Import data</span></span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>dataA.imp <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;Data&quot;</span>, <span class="st">&quot;Tidy&quot;</span>, <span class="st">&quot;data_impA.rds&quot;</span>)) </span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>dataA <span class="ot">&lt;-</span> <span class="fu">complete</span>(dataA.imp, <span class="at">action =</span> <span class="st">&quot;long&quot;</span>, <span class="at">include =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>dataA <span class="ot">&lt;-</span> <span class="fu">complete</span>(dataA.imp, <span class="at">action =</span> <span class="st">&quot;long&quot;</span>, <span class="at">include =</span> <span class="cn">TRUE</span>)  </span>
 <span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>dataA <span class="ot">&lt;-</span> dataA <span class="sc">|&gt;</span> </span>
 <span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">beta.sum =</span> <span class="fu">kfre_pi</span>(dataA), </span>
@@ -4678,7 +4679,7 @@ window.onload = function() {
 <span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>           eventd5y <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">2</span>) <span class="sc">~</span> <span class="dv">0</span>, </span>
 <span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>           eventd5y <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">1</span>)  <span class="sc">~</span> <span class="dv">1</span>, </span>
 <span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>           <span class="cn">TRUE</span> <span class="sc">~</span> <span class="fu">as.numeric</span>(<span class="cn">NA</span>)</span>
-<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>         ))</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>         )) </span>
 <span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="co"># dataA.imp &lt;- as.mids(dataA)</span></span>
 <span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="co"># dataA.imp$loggedEvents</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
@@ -4691,331 +4692,1030 @@ window.onload = function() {
 <div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>p5y <span class="ot">&lt;-</span> <span class="fu">recal.risk.basal</span>(dataA, <span class="dv">5</span>)</span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>p5y</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>$fc.aj.risk.basal.imp
-  [1] 0.9210917 0.9200592 0.9185975 0.9187835 0.9214378 0.9228320 0.9200942
-  [8] 0.9207573 0.9199196 0.9173556 0.9235703 0.9210946 0.9206791 0.9172085
- [15] 0.9209880 0.9205077 0.9206835 0.9221257 0.9200495 0.9174004 0.9242738
- [22] 0.9192947 0.9203580 0.9191897 0.9175634 0.9212853 0.9221113 0.9226350
- [29] 0.9237107 0.9206189 0.9205518 0.9195731 0.9181835 0.9187016 0.9210084
- [36] 0.9258606 0.9219530 0.9204430 0.9175788 0.9225003 0.9200894 0.9221911
- [43] 0.9206765 0.9178522 0.9190150 0.9224933 0.9223533 0.9192850 0.9202848
- [50] 0.9175381 0.9166385 0.9210130 0.9194292 0.9215598 0.9220279 0.9180854
- [57] 0.9189808 0.9205886 0.9226049 0.9213816 0.9210419 0.9171901 0.9196644
- [64] 0.9183766 0.9186154 0.9229013 0.9214058 0.9191082 0.9200955 0.9206653
- [71] 0.9209351 0.9188145 0.9219908 0.9237142 0.9190870 0.9233059 0.9168028
- [78] 0.9226029 0.9199342 0.9211894 0.9227173 0.9187733 0.9210404 0.9226894
- [85] 0.9183597 0.9221093 0.9210603 0.9192396 0.9212325 0.9195760 0.9222314
- [92] 0.9197374 0.9176421 0.9187878 0.9227412 0.9203080 0.9194950 0.9211723
- [99] 0.9215635 0.9227805
+<pre><code>$recal_df_imp
+    year .imp   st0_imp fc_coef_imp
+1      5    1 0.9210917           1
+2      5    2 0.9200592           1
+3      5    3 0.9185975           1
+4      5    4 0.9187835           1
+5      5    5 0.9214378           1
+6      5    6 0.9228320           1
+7      5    7 0.9200942           1
+8      5    8 0.9207573           1
+9      5    9 0.9199196           1
+10     5   10 0.9173556           1
+11     5   11 0.9235703           1
+12     5   12 0.9210946           1
+13     5   13 0.9206791           1
+14     5   14 0.9172085           1
+15     5   15 0.9209880           1
+16     5   16 0.9205077           1
+17     5   17 0.9206835           1
+18     5   18 0.9221257           1
+19     5   19 0.9200495           1
+20     5   20 0.9174004           1
+21     5   21 0.9242738           1
+22     5   22 0.9192947           1
+23     5   23 0.9203580           1
+24     5   24 0.9191897           1
+25     5   25 0.9175634           1
+26     5   26 0.9212853           1
+27     5   27 0.9221113           1
+28     5   28 0.9226350           1
+29     5   29 0.9237107           1
+30     5   30 0.9206189           1
+31     5   31 0.9205518           1
+32     5   32 0.9195731           1
+33     5   33 0.9181835           1
+34     5   34 0.9187016           1
+35     5   35 0.9210084           1
+36     5   36 0.9258606           1
+37     5   37 0.9219530           1
+38     5   38 0.9204430           1
+39     5   39 0.9175788           1
+40     5   40 0.9225003           1
+41     5   41 0.9200894           1
+42     5   42 0.9221911           1
+43     5   43 0.9206765           1
+44     5   44 0.9178522           1
+45     5   45 0.9190150           1
+46     5   46 0.9224933           1
+47     5   47 0.9223533           1
+48     5   48 0.9192850           1
+49     5   49 0.9202848           1
+50     5   50 0.9175381           1
+51     5   51 0.9166385           1
+52     5   52 0.9210130           1
+53     5   53 0.9194292           1
+54     5   54 0.9215598           1
+55     5   55 0.9220279           1
+56     5   56 0.9180854           1
+57     5   57 0.9189808           1
+58     5   58 0.9205886           1
+59     5   59 0.9226049           1
+60     5   60 0.9213816           1
+61     5   61 0.9210419           1
+62     5   62 0.9171901           1
+63     5   63 0.9196644           1
+64     5   64 0.9183766           1
+65     5   65 0.9186154           1
+66     5   66 0.9229013           1
+67     5   67 0.9214058           1
+68     5   68 0.9191082           1
+69     5   69 0.9200955           1
+70     5   70 0.9206653           1
+71     5   71 0.9209351           1
+72     5   72 0.9188145           1
+73     5   73 0.9219908           1
+74     5   74 0.9237142           1
+75     5   75 0.9190870           1
+76     5   76 0.9233059           1
+77     5   77 0.9168028           1
+78     5   78 0.9226029           1
+79     5   79 0.9199342           1
+80     5   80 0.9211894           1
+81     5   81 0.9227173           1
+82     5   82 0.9187733           1
+83     5   83 0.9210404           1
+84     5   84 0.9226894           1
+85     5   85 0.9183597           1
+86     5   86 0.9221093           1
+87     5   87 0.9210603           1
+88     5   88 0.9192396           1
+89     5   89 0.9212325           1
+90     5   90 0.9195760           1
+91     5   91 0.9222314           1
+92     5   92 0.9197374           1
+93     5   93 0.9176421           1
+94     5   94 0.9187878           1
+95     5   95 0.9227412           1
+96     5   96 0.9203080           1
+97     5   97 0.9194950           1
+98     5   98 0.9211723           1
+99     5   99 0.9215635           1
+100    5  100 0.9227805           1
 
-$fc.aj.risk.basal.mean
-[1] 0.9204742</code></pre>
+$st0_pool
+[1] 0.9204742
+
+$fc_coef_pool
+[1] 1</code></pre>
 </div>
 </div>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>p2y <span class="ot">&lt;-</span> <span class="fu">recal.risk.basal</span>(dataA, <span class="dv">2</span>)</span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>p2y</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>$fc.aj.risk.basal.imp
-  [1] 0.9616736 0.9614546 0.9600844 0.9605408 0.9613510 0.9618128 0.9613230
-  [8] 0.9613464 0.9609601 0.9594799 0.9621509 0.9612103 0.9609136 0.9595091
- [15] 0.9611521 0.9609759 0.9610994 0.9618357 0.9608877 0.9599005 0.9626167
- [22] 0.9609684 0.9614199 0.9606767 0.9597899 0.9613676 0.9615232 0.9621229
- [29] 0.9622631 0.9608555 0.9609946 0.9607647 0.9604357 0.9600397 0.9611069
- [36] 0.9629754 0.9621386 0.9611276 0.9599477 0.9618813 0.9612772 0.9618474
- [43] 0.9613471 0.9599135 0.9604306 0.9621671 0.9620405 0.9608507 0.9606859
- [50] 0.9601349 0.9599299 0.9612492 0.9605066 0.9617596 0.9619439 0.9599995
- [57] 0.9606253 0.9612421 0.9619845 0.9615438 0.9610842 0.9596800 0.9604917
- [64] 0.9603353 0.9599457 0.9621132 0.9615594 0.9605444 0.9608014 0.9612286
- [71] 0.9610702 0.9605254 0.9614472 0.9625550 0.9604916 0.9625511 0.9593366
- [78] 0.9620512 0.9608827 0.9614374 0.9620716 0.9605959 0.9611305 0.9618636
- [85] 0.9601678 0.9616508 0.9613901 0.9608217 0.9614058 0.9603025 0.9615045
- [92] 0.9609852 0.9598676 0.9604143 0.9622152 0.9613077 0.9605918 0.9614442
- [99] 0.9613881 0.9620563
+<pre><code>$recal_df_imp
+    year .imp   st0_imp fc_coef_imp
+1      2    1 0.9616736           1
+2      2    2 0.9614546           1
+3      2    3 0.9600844           1
+4      2    4 0.9605408           1
+5      2    5 0.9613510           1
+6      2    6 0.9618128           1
+7      2    7 0.9613230           1
+8      2    8 0.9613464           1
+9      2    9 0.9609601           1
+10     2   10 0.9594799           1
+11     2   11 0.9621509           1
+12     2   12 0.9612103           1
+13     2   13 0.9609136           1
+14     2   14 0.9595091           1
+15     2   15 0.9611521           1
+16     2   16 0.9609759           1
+17     2   17 0.9610994           1
+18     2   18 0.9618357           1
+19     2   19 0.9608877           1
+20     2   20 0.9599005           1
+21     2   21 0.9626167           1
+22     2   22 0.9609684           1
+23     2   23 0.9614199           1
+24     2   24 0.9606767           1
+25     2   25 0.9597899           1
+26     2   26 0.9613676           1
+27     2   27 0.9615232           1
+28     2   28 0.9621229           1
+29     2   29 0.9622631           1
+30     2   30 0.9608555           1
+31     2   31 0.9609946           1
+32     2   32 0.9607647           1
+33     2   33 0.9604357           1
+34     2   34 0.9600397           1
+35     2   35 0.9611069           1
+36     2   36 0.9629754           1
+37     2   37 0.9621386           1
+38     2   38 0.9611276           1
+39     2   39 0.9599477           1
+40     2   40 0.9618813           1
+41     2   41 0.9612772           1
+42     2   42 0.9618474           1
+43     2   43 0.9613471           1
+44     2   44 0.9599135           1
+45     2   45 0.9604306           1
+46     2   46 0.9621671           1
+47     2   47 0.9620405           1
+48     2   48 0.9608507           1
+49     2   49 0.9606859           1
+50     2   50 0.9601349           1
+51     2   51 0.9599299           1
+52     2   52 0.9612492           1
+53     2   53 0.9605066           1
+54     2   54 0.9617596           1
+55     2   55 0.9619439           1
+56     2   56 0.9599995           1
+57     2   57 0.9606253           1
+58     2   58 0.9612421           1
+59     2   59 0.9619845           1
+60     2   60 0.9615438           1
+61     2   61 0.9610842           1
+62     2   62 0.9596800           1
+63     2   63 0.9604917           1
+64     2   64 0.9603353           1
+65     2   65 0.9599457           1
+66     2   66 0.9621132           1
+67     2   67 0.9615594           1
+68     2   68 0.9605444           1
+69     2   69 0.9608014           1
+70     2   70 0.9612286           1
+71     2   71 0.9610702           1
+72     2   72 0.9605254           1
+73     2   73 0.9614472           1
+74     2   74 0.9625550           1
+75     2   75 0.9604916           1
+76     2   76 0.9625511           1
+77     2   77 0.9593366           1
+78     2   78 0.9620512           1
+79     2   79 0.9608827           1
+80     2   80 0.9614374           1
+81     2   81 0.9620716           1
+82     2   82 0.9605959           1
+83     2   83 0.9611305           1
+84     2   84 0.9618636           1
+85     2   85 0.9601678           1
+86     2   86 0.9616508           1
+87     2   87 0.9613901           1
+88     2   88 0.9608217           1
+89     2   89 0.9614058           1
+90     2   90 0.9603025           1
+91     2   91 0.9615045           1
+92     2   92 0.9609852           1
+93     2   93 0.9598676           1
+94     2   94 0.9604143           1
+95     2   95 0.9622152           1
+96     2   96 0.9613077           1
+97     2   97 0.9605918           1
+98     2   98 0.9614442           1
+99     2   99 0.9613881           1
+100    2  100 0.9620563           1
 
-$fc.aj.risk.basal.mean
-[1] 0.9610946</code></pre>
+$st0_pool
+[1] 0.9610946
+
+$fc_coef_pool
+[1] 1</code></pre>
 </div>
 </div>
 <p>El nuevo factor para recalcular el riesgo basal (recalibrado) a 5 anios es el siguiente . A 2 anios es el siguiente .</p>
 <p>Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado solo con la actualización del riesgo basal:</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>df_recal_modA <span class="ot">&lt;-</span> p2y[[<span class="dv">1</span>]] <span class="sc">|&gt;</span> </span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bind_rows</span>(p5y[[<span class="dv">1</span>]])</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="fu">export</span>(df_recal_modA, <span class="fu">here</span>(<span class="st">&quot;Data&quot;</span>, <span class="st">&quot;Tidy&quot;</span>, <span class="st">&quot;equations&quot;</span>, <span class="st">&quot;df_recal_modA.rds&quot;</span>))</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(df_recal_modA)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output-display">
+
+<div data-pagedtable="false">
+  <script data-pagedtable-source type="application/json">
+{"columns":[{"label":[""],"name":["_rn_"],"type":[""],"align":["left"]},{"label":["year"],"name":[1],"type":["dbl"],"align":["right"]},{"label":[".imp"],"name":[2],"type":["int"],"align":["right"]},{"label":["st0_imp"],"name":[3],"type":["dbl"],"align":["right"]},{"label":["fc_coef_imp"],"name":[4],"type":["dbl"],"align":["right"]}],"data":[{"1":"2","2":"1","3":"0.9616736","4":"1","_rn_":"1"},{"1":"2","2":"2","3":"0.9614546","4":"1","_rn_":"2"},{"1":"2","2":"3","3":"0.9600844","4":"1","_rn_":"3"},{"1":"2","2":"4","3":"0.9605408","4":"1","_rn_":"4"},{"1":"2","2":"5","3":"0.9613510","4":"1","_rn_":"5"},{"1":"2","2":"6","3":"0.9618128","4":"1","_rn_":"6"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
+  </script>
+</div>
+</div>
+</div>
 </section>
 <section id="reestimar-coeficientes-mediante-cox" class="level2" data-number="5">
 <h2 data-number="5" class="anchored" data-anchor-id="reestimar-coeficientes-mediante-cox"><span class="header-section-number">5</span> Reestimar coeficientes mediante Cox:</h2>
 <p>Primero ajustamos nuevamente una regresión del cox sobre el índice pronósitco y recalculamos el coeficiente para este</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>p5y_2 <span class="ot">&lt;-</span> <span class="fu">recal.risk.coef</span>(dataA, <span class="dv">5</span>)</span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>p5y_2</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>p5y_2 <span class="ot">&lt;-</span> <span class="fu">recal.risk.coef</span>(dataA, <span class="dv">5</span>)</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>p5y_2</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>$fc.aj.risk.basal.imp
-  [1] 0.9094652 0.9076154 0.9056996 0.9055331 0.9080368 0.9097330 0.9069019
-  [8] 0.9073996 0.9074967 0.9058271 0.9108490 0.9094937 0.9077569 0.9044776
- [15] 0.9073606 0.9081973 0.9076619 0.9082148 0.9065768 0.9058834 0.9106669
- [22] 0.9063452 0.9081266 0.9066101 0.9063974 0.9068715 0.9080729 0.9098979
- [29] 0.9094234 0.9084104 0.9073040 0.9069067 0.9057436 0.9068757 0.9079908
- [36] 0.9102751 0.9094006 0.9071598 0.9057558 0.9081001 0.9078630 0.9092240
- [43] 0.9091435 0.9076330 0.9052382 0.9090677 0.9090521 0.9071151 0.9077436
- [50] 0.9069566 0.9056874 0.9076140 0.9067575 0.9085917 0.9082129 0.9052516
- [57] 0.9075159 0.9070871 0.9093561 0.9086143 0.9082855 0.9050816 0.9074282
- [64] 0.9061939 0.9069830 0.9093202 0.9085063 0.9070917 0.9070974 0.9090662
- [71] 0.9075121 0.9077967 0.9088491 0.9115207 0.9073586 0.9094943 0.9049983
- [78] 0.9088891 0.9082196 0.9076349 0.9095445 0.9064487 0.9090247 0.9092291
- [85] 0.9065438 0.9096999 0.9084741 0.9076791 0.9076213 0.9078932 0.9086867
- [92] 0.9078503 0.9064650 0.9075996 0.9081694 0.9071789 0.9081508 0.9077951
- [99] 0.9085172 0.9084920
+<pre><code>$recal_df_imp
+    year .imp   st0_imp fc_coef_imp
+1      5    1 0.9094652   0.8579863
+2      5    2 0.9076154   0.8488842
+3      5    3 0.9056996   0.8442777
+4      5    4 0.9055331   0.8376610
+5      5    5 0.9080368   0.8355374
+6      5    6 0.9097330   0.8386339
+7      5    7 0.9069019   0.8346399
+8      5    8 0.9073996   0.8372842
+9      5    9 0.9074967   0.8461798
+10     5   10 0.9058271   0.8599076
+11     5   11 0.9108490   0.8442865
+12     5   12 0.9094937   0.8565733
+13     5   13 0.9077569   0.8410863
+14     5   14 0.9044776   0.8410439
+15     5   15 0.9073606   0.8356089
+16     5   16 0.9081973   0.8488051
+17     5   17 0.9076619   0.8442260
+18     5   18 0.9082148   0.8297355
+19     5   19 0.9065768   0.8331886
+20     5   20 0.9058834   0.8627078
+21     5   21 0.9106669   0.8335741
+22     5   22 0.9063452   0.8418557
+23     5   23 0.9081266   0.8523431
+24     5   24 0.9066101   0.8450253
+25     5   25 0.9063974   0.8590967
+26     5   26 0.9068715   0.8246164
+27     5   27 0.9080729   0.8321333
+28     5   28 0.9098979   0.8486054
+29     5   29 0.9094234   0.8235097
+30     5   30 0.9084104   0.8531222
+31     5   31 0.9073040   0.8408234
+32     5   32 0.9069067   0.8471010
+33     5   33 0.9057436   0.8505938
+34     5   34 0.9068757   0.8529117
+35     5   35 0.9079908   0.8429225
+36     5   36 0.9102751   0.8149723
+37     5   37 0.9094006   0.8489896
+38     5   38 0.9071598   0.8355914
+39     5   39 0.9057558   0.8583534
+40     5   40 0.9081001   0.8280847
+41     5   41 0.9078630   0.8539769
+42     5   42 0.9092240   0.8397012
+43     5   43 0.9091435   0.8594144
+44     5   44 0.9076330   0.8756736
+45     5   45 0.9052382   0.8360019
+46     5   46 0.9090677   0.8336018
+47     5   47 0.9090521   0.8402710
+48     5   48 0.9071151   0.8520057
+49     5   49 0.9077436   0.8455843
+50     5   50 0.9069566   0.8718293
+51     5   51 0.9056874   0.8638371
+52     5   52 0.9076140   0.8380719
+53     5   53 0.9067575   0.8485805
+54     5   54 0.9085917   0.8417023
+55     5   55 0.9082129   0.8357381
+56     5   56 0.9052516   0.8449292
+57     5   57 0.9075159   0.8597566
+58     5   58 0.9070871   0.8410289
+59     5   59 0.9093561   0.8402237
+60     5   60 0.9086143   0.8432948
+61     5   61 0.9082855   0.8460604
+62     5   62 0.9050816   0.8495489
+63     5   63 0.9074282   0.8526378
+64     5   64 0.9061939   0.8521920
+65     5   65 0.9069830   0.8567170
+66     5   66 0.9093202   0.8356770
+67     5   67 0.9085063   0.8411115
+68     5   68 0.9070917   0.8503780
+69     5   69 0.9070974   0.8416951
+70     5   70 0.9090662   0.8569727
+71     5   71 0.9075121   0.8340223
+72     5   72 0.9077967   0.8640173
+73     5   73 0.9088491   0.8348727
+74     5   74 0.9115207   0.8504035
+75     5   75 0.9073586   0.8550002
+76     5   76 0.9094943   0.8333245
+77     5   77 0.9049983   0.8507427
+78     5   78 0.9088891   0.8353003
+79     5   79 0.9082196   0.8587680
+80     5   80 0.9076349   0.8363234
+81     5   81 0.9095445   0.8370460
+82     5   82 0.9064487   0.8512958
+83     5   83 0.9090247   0.8515157
+84     5   84 0.9092291   0.8333939
+85     5   85 0.9065438   0.8542866
+86     5   86 0.9096999   0.8455007
+87     5   87 0.9084741   0.8467089
+88     5   88 0.9076791   0.8575195
+89     5   89 0.9076213   0.8339584
+90     5   90 0.9078932   0.8525374
+91     5   91 0.9086867   0.8354126
+92     5   92 0.9078503   0.8515528
+93     5   93 0.9064650   0.8599854
+94     5   94 0.9075996   0.8647595
+95     5   95 0.9081694   0.8291902
+96     5   96 0.9071789   0.8395640
+97     5   97 0.9081508   0.8602551
+98     5   98 0.9077951   0.8409785
+99     5   99 0.9085172   0.8369455
+100    5  100 0.9084920   0.8251928
 
-$fc.aj.risk.basal
+$st0_pool
 [1] 0.9077863
 
-$fc.aj.coef.imp
-  [1] 0.8579863 0.8488842 0.8442777 0.8376610 0.8355374 0.8386339 0.8346399
-  [8] 0.8372842 0.8461798 0.8599076 0.8442865 0.8565733 0.8410863 0.8410439
- [15] 0.8356089 0.8488051 0.8442260 0.8297355 0.8331886 0.8627078 0.8335741
- [22] 0.8418557 0.8523431 0.8450253 0.8590967 0.8246164 0.8321333 0.8486054
- [29] 0.8235097 0.8531222 0.8408234 0.8471010 0.8505938 0.8529117 0.8429225
- [36] 0.8149723 0.8489896 0.8355914 0.8583534 0.8280847 0.8539769 0.8397012
- [43] 0.8594144 0.8756736 0.8360019 0.8336018 0.8402710 0.8520057 0.8455843
- [50] 0.8718293 0.8638371 0.8380719 0.8485805 0.8417023 0.8357381 0.8449292
- [57] 0.8597566 0.8410289 0.8402237 0.8432948 0.8460604 0.8495489 0.8526378
- [64] 0.8521920 0.8567170 0.8356770 0.8411115 0.8503780 0.8416951 0.8569727
- [71] 0.8340223 0.8640173 0.8348727 0.8504035 0.8550002 0.8333245 0.8507427
- [78] 0.8353003 0.8587680 0.8363234 0.8370460 0.8512958 0.8515157 0.8333939
- [85] 0.8542866 0.8455007 0.8467089 0.8575195 0.8339584 0.8525374 0.8354126
- [92] 0.8515528 0.8599854 0.8647595 0.8291902 0.8395640 0.8602551 0.8409785
- [99] 0.8369455 0.8251928
-
-$fc.aj.coef
+$fc_coef_pool
 [1] 0.8452107</code></pre>
 </div>
 </div>
-<p>Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es 0.8452107 y la supervivencia basal ajustada es 0.9077863.</p>
+<p>Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es y la supervivencia basal ajustada es .</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>p2y_2 <span class="ot">&lt;-</span> <span class="fu">recal.risk.coef</span>(dataA, <span class="dv">2</span>)</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>p2y_2</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>p2y_2 <span class="ot">&lt;-</span> <span class="fu">recal.risk.coef</span>(dataA, <span class="dv">2</span>)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>p2y_2</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>$fc.aj.risk.basal.imp
-  [1] 0.9546997 0.9538765 0.9524041 0.9525248 0.9533971 0.9541078 0.9532644
-  [8] 0.9533724 0.9535011 0.9526182 0.9547034 0.9543346 0.9532907 0.9518511
- [15] 0.9531222 0.9536495 0.9534042 0.9535941 0.9528052 0.9530249 0.9546530
- [22] 0.9531199 0.9540577 0.9531140 0.9529610 0.9527844 0.9533020 0.9546146
- [29] 0.9538313 0.9536664 0.9532008 0.9531711 0.9529605 0.9529831 0.9534900
- [36] 0.9539981 0.9546606 0.9531499 0.9528485 0.9533689 0.9539312 0.9541284
- [43] 0.9544581 0.9538171 0.9522424 0.9541550 0.9541720 0.9534988 0.9532964
- [50] 0.9537599 0.9532036 0.9533174 0.9530062 0.9540026 0.9537588 0.9522824
- [57] 0.9537109 0.9532828 0.9541599 0.9539297 0.9536010 0.9523419 0.9532756
- [64] 0.9530164 0.9530389 0.9541011 0.9538132 0.9532487 0.9531045 0.9542668
- [71] 0.9531236 0.9538871 0.9536423 0.9553337 0.9534704 0.9544068 0.9522064
- [78] 0.9539582 0.9539475 0.9534064 0.9542626 0.9531955 0.9540059 0.9538767
- [85] 0.9530728 0.9543027 0.9538854 0.9538274 0.9532496 0.9533161 0.9535433
- [92] 0.9537603 0.9530896 0.9537487 0.9537052 0.9533980 0.9538043 0.9534832
- [99] 0.9536124 0.9536190
+<pre><code>$recal_df_imp
+    year .imp   st0_imp fc_coef_imp
+1      2    1 0.9546997   0.8579863
+2      2    2 0.9538765   0.8488842
+3      2    3 0.9524041   0.8442777
+4      2    4 0.9525248   0.8376610
+5      2    5 0.9533971   0.8355374
+6      2    6 0.9541078   0.8386339
+7      2    7 0.9532644   0.8346399
+8      2    8 0.9533724   0.8372842
+9      2    9 0.9535011   0.8461798
+10     2   10 0.9526182   0.8599076
+11     2   11 0.9547034   0.8442865
+12     2   12 0.9543346   0.8565733
+13     2   13 0.9532907   0.8410863
+14     2   14 0.9518511   0.8410439
+15     2   15 0.9531222   0.8356089
+16     2   16 0.9536495   0.8488051
+17     2   17 0.9534042   0.8442260
+18     2   18 0.9535941   0.8297355
+19     2   19 0.9528052   0.8331886
+20     2   20 0.9530249   0.8627078
+21     2   21 0.9546530   0.8335741
+22     2   22 0.9531199   0.8418557
+23     2   23 0.9540577   0.8523431
+24     2   24 0.9531140   0.8450253
+25     2   25 0.9529610   0.8590967
+26     2   26 0.9527844   0.8246164
+27     2   27 0.9533020   0.8321333
+28     2   28 0.9546146   0.8486054
+29     2   29 0.9538313   0.8235097
+30     2   30 0.9536664   0.8531222
+31     2   31 0.9532008   0.8408234
+32     2   32 0.9531711   0.8471010
+33     2   33 0.9529605   0.8505938
+34     2   34 0.9529831   0.8529117
+35     2   35 0.9534900   0.8429225
+36     2   36 0.9539981   0.8149723
+37     2   37 0.9546606   0.8489896
+38     2   38 0.9531499   0.8355914
+39     2   39 0.9528485   0.8583534
+40     2   40 0.9533689   0.8280847
+41     2   41 0.9539312   0.8539769
+42     2   42 0.9541284   0.8397012
+43     2   43 0.9544581   0.8594144
+44     2   44 0.9538171   0.8756736
+45     2   45 0.9522424   0.8360019
+46     2   46 0.9541550   0.8336018
+47     2   47 0.9541720   0.8402710
+48     2   48 0.9534988   0.8520057
+49     2   49 0.9532964   0.8455843
+50     2   50 0.9537599   0.8718293
+51     2   51 0.9532036   0.8638371
+52     2   52 0.9533174   0.8380719
+53     2   53 0.9530062   0.8485805
+54     2   54 0.9540026   0.8417023
+55     2   55 0.9537588   0.8357381
+56     2   56 0.9522824   0.8449292
+57     2   57 0.9537109   0.8597566
+58     2   58 0.9532828   0.8410289
+59     2   59 0.9541599   0.8402237
+60     2   60 0.9539297   0.8432948
+61     2   61 0.9536010   0.8460604
+62     2   62 0.9523419   0.8495489
+63     2   63 0.9532756   0.8526378
+64     2   64 0.9530164   0.8521920
+65     2   65 0.9530389   0.8567170
+66     2   66 0.9541011   0.8356770
+67     2   67 0.9538132   0.8411115
+68     2   68 0.9532487   0.8503780
+69     2   69 0.9531045   0.8416951
+70     2   70 0.9542668   0.8569727
+71     2   71 0.9531236   0.8340223
+72     2   72 0.9538871   0.8640173
+73     2   73 0.9536423   0.8348727
+74     2   74 0.9553337   0.8504035
+75     2   75 0.9534704   0.8550002
+76     2   76 0.9544068   0.8333245
+77     2   77 0.9522064   0.8507427
+78     2   78 0.9539582   0.8353003
+79     2   79 0.9539475   0.8587680
+80     2   80 0.9534064   0.8363234
+81     2   81 0.9542626   0.8370460
+82     2   82 0.9531955   0.8512958
+83     2   83 0.9540059   0.8515157
+84     2   84 0.9538767   0.8333939
+85     2   85 0.9530728   0.8542866
+86     2   86 0.9543027   0.8455007
+87     2   87 0.9538854   0.8467089
+88     2   88 0.9538274   0.8575195
+89     2   89 0.9532496   0.8339584
+90     2   90 0.9533161   0.8525374
+91     2   91 0.9535433   0.8354126
+92     2   92 0.9537603   0.8515528
+93     2   93 0.9530896   0.8599854
+94     2   94 0.9537487   0.8647595
+95     2   95 0.9537052   0.8291902
+96     2   96 0.9533980   0.8395640
+97     2   97 0.9538043   0.8602551
+98     2   98 0.9534832   0.8409785
+99     2   99 0.9536124   0.8369455
+100    2  100 0.9536190   0.8251928
 
-$fc.aj.risk.basal
+$st0_pool
 [1] 0.9535354
 
-$fc.aj.coef.imp
-  [1] 0.8579863 0.8488842 0.8442777 0.8376610 0.8355374 0.8386339 0.8346399
-  [8] 0.8372842 0.8461798 0.8599076 0.8442865 0.8565733 0.8410863 0.8410439
- [15] 0.8356089 0.8488051 0.8442260 0.8297355 0.8331886 0.8627078 0.8335741
- [22] 0.8418557 0.8523431 0.8450253 0.8590967 0.8246164 0.8321333 0.8486054
- [29] 0.8235097 0.8531222 0.8408234 0.8471010 0.8505938 0.8529117 0.8429225
- [36] 0.8149723 0.8489896 0.8355914 0.8583534 0.8280847 0.8539769 0.8397012
- [43] 0.8594144 0.8756736 0.8360019 0.8336018 0.8402710 0.8520057 0.8455843
- [50] 0.8718293 0.8638371 0.8380719 0.8485805 0.8417023 0.8357381 0.8449292
- [57] 0.8597566 0.8410289 0.8402237 0.8432948 0.8460604 0.8495489 0.8526378
- [64] 0.8521920 0.8567170 0.8356770 0.8411115 0.8503780 0.8416951 0.8569727
- [71] 0.8340223 0.8640173 0.8348727 0.8504035 0.8550002 0.8333245 0.8507427
- [78] 0.8353003 0.8587680 0.8363234 0.8370460 0.8512958 0.8515157 0.8333939
- [85] 0.8542866 0.8455007 0.8467089 0.8575195 0.8339584 0.8525374 0.8354126
- [92] 0.8515528 0.8599854 0.8647595 0.8291902 0.8395640 0.8602551 0.8409785
- [99] 0.8369455 0.8251928
-
-$fc.aj.coef
+$fc_coef_pool
 [1] 0.8452107</code></pre>
 </div>
 </div>
-<p>Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es 0.8452107 y la supervivencia basal ajustada es 0.9535354.</p>
+<p>Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es y la supervivencia basal ajustada es .</p>
+<p>Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado con la actualización del riesgo basal y de coeficiente:</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>df_recal_modB <span class="ot">&lt;-</span> p2y_2[[<span class="dv">1</span>]] <span class="sc">|&gt;</span> </span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bind_rows</span>(p5y_2[[<span class="dv">1</span>]])</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="fu">export</span>(df_recal_modB, <span class="fu">here</span>(<span class="st">&quot;Data&quot;</span>, <span class="st">&quot;Tidy&quot;</span>, <span class="st">&quot;equations&quot;</span>, <span class="st">&quot;df_recal_modB.rds&quot;</span>))</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(df_recal_modB)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output-display">
+
+<div data-pagedtable="false">
+  <script data-pagedtable-source type="application/json">
+{"columns":[{"label":[""],"name":["_rn_"],"type":[""],"align":["left"]},{"label":["year"],"name":[1],"type":["dbl"],"align":["right"]},{"label":[".imp"],"name":[2],"type":["int"],"align":["right"]},{"label":["st0_imp"],"name":[3],"type":["dbl"],"align":["right"]},{"label":["fc_coef_imp"],"name":[4],"type":["dbl"],"align":["right"]}],"data":[{"1":"2","2":"1","3":"0.9546997","4":"0.8579863","_rn_":"1"},{"1":"2","2":"2","3":"0.9538765","4":"0.8488842","_rn_":"2"},{"1":"2","2":"3","3":"0.9524041","4":"0.8442777","_rn_":"3"},{"1":"2","2":"4","3":"0.9525248","4":"0.8376610","_rn_":"4"},{"1":"2","2":"5","3":"0.9533971","4":"0.8355374","_rn_":"5"},{"1":"2","2":"6","3":"0.9541078","4":"0.8386339","_rn_":"6"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
+  </script>
+</div>
+</div>
+</div>
 </section>
 <section id="reestimar-riesgo-basal-usando-cause-specific-hazard-models" class="level2" data-number="6">
 <h2 data-number="6" class="anchored" data-anchor-id="reestimar-riesgo-basal-usando-cause-specific-hazard-models"><span class="header-section-number">6</span> Reestimar riesgo basal usando Cause-specific Hazard Models:</h2>
 <p>Bajo este enfoque de recalibración, solo reestimaremos el riesgo basal:</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>p5y_csh <span class="ot">&lt;-</span> <span class="fu">recal.risk.basal.csh</span>(dataA, <span class="dv">5</span>)</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>p5y_csh</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>p5y_csh <span class="ot">&lt;-</span> <span class="fu">recal.risk.basal.csh</span>(dataA, <span class="dv">5</span>)</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>p5y_csh</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>$fc.aj.risk.basal.imp.csh
-  [1] 0.9310752 0.9303329 0.9291658 0.9293376 0.9312836 0.9323178 0.9303424
-  [8] 0.9308107 0.9301831 0.9282233 0.9328653 0.9310147 0.9306917 0.9281275
- [15] 0.9309397 0.9305871 0.9307264 0.9318244 0.9302649 0.9283132 0.9334304
- [22] 0.9297477 0.9305408 0.9296426 0.9284116 0.9311803 0.9317726 0.9322114
- [29] 0.9329761 0.9306537 0.9306129 0.9299120 0.9289264 0.9292192 0.9309526
- [36] 0.9345867 0.9317526 0.9305587 0.9284435 0.9320743 0.9303388 0.9318646
- [43] 0.9307498 0.9286294 0.9294871 0.9321217 0.9320036 0.9297264 0.9303963
- [50] 0.9284383 0.9277989 0.9309728 0.9297766 0.9314214 0.9317666 0.9287950
- [57] 0.9294934 0.9306825 0.9321742 0.9312626 0.9309740 0.9281481 0.9299366
- [64] 0.9290505 0.9291450 0.9323931 0.9312855 0.9295579 0.9302793 0.9307269
- [71] 0.9308881 0.9293694 0.9316783 0.9330252 0.9295456 0.9327367 0.9278316
- [78] 0.9321859 0.9301839 0.9311259 0.9322730 0.9293476 0.9309775 0.9322095
- [85] 0.9290135 0.9317828 0.9310216 0.9296951 0.9311398 0.9298557 0.9318568
- [92] 0.9300510 0.9284715 0.9293306 0.9323036 0.9304968 0.9298396 0.9311104
- [99] 0.9313791 0.9323112
+<pre><code>$recal_df_imp
+    year .imp   st0_imp fc_coef_imp
+1      5    1 0.9310752           1
+2      5    2 0.9303329           1
+3      5    3 0.9291658           1
+4      5    4 0.9293376           1
+5      5    5 0.9312836           1
+6      5    6 0.9323178           1
+7      5    7 0.9303424           1
+8      5    8 0.9308107           1
+9      5    9 0.9301831           1
+10     5   10 0.9282233           1
+11     5   11 0.9328653           1
+12     5   12 0.9310147           1
+13     5   13 0.9306917           1
+14     5   14 0.9281275           1
+15     5   15 0.9309397           1
+16     5   16 0.9305871           1
+17     5   17 0.9307264           1
+18     5   18 0.9318244           1
+19     5   19 0.9302649           1
+20     5   20 0.9283132           1
+21     5   21 0.9334304           1
+22     5   22 0.9297477           1
+23     5   23 0.9305408           1
+24     5   24 0.9296426           1
+25     5   25 0.9284116           1
+26     5   26 0.9311803           1
+27     5   27 0.9317726           1
+28     5   28 0.9322114           1
+29     5   29 0.9329761           1
+30     5   30 0.9306537           1
+31     5   31 0.9306129           1
+32     5   32 0.9299120           1
+33     5   33 0.9289264           1
+34     5   34 0.9292192           1
+35     5   35 0.9309526           1
+36     5   36 0.9345867           1
+37     5   37 0.9317526           1
+38     5   38 0.9305587           1
+39     5   39 0.9284435           1
+40     5   40 0.9320743           1
+41     5   41 0.9303388           1
+42     5   42 0.9318646           1
+43     5   43 0.9307498           1
+44     5   44 0.9286294           1
+45     5   45 0.9294871           1
+46     5   46 0.9321217           1
+47     5   47 0.9320036           1
+48     5   48 0.9297264           1
+49     5   49 0.9303963           1
+50     5   50 0.9284383           1
+51     5   51 0.9277989           1
+52     5   52 0.9309728           1
+53     5   53 0.9297766           1
+54     5   54 0.9314214           1
+55     5   55 0.9317666           1
+56     5   56 0.9287950           1
+57     5   57 0.9294934           1
+58     5   58 0.9306825           1
+59     5   59 0.9321742           1
+60     5   60 0.9312626           1
+61     5   61 0.9309740           1
+62     5   62 0.9281481           1
+63     5   63 0.9299366           1
+64     5   64 0.9290505           1
+65     5   65 0.9291450           1
+66     5   66 0.9323931           1
+67     5   67 0.9312855           1
+68     5   68 0.9295579           1
+69     5   69 0.9302793           1
+70     5   70 0.9307269           1
+71     5   71 0.9308881           1
+72     5   72 0.9293694           1
+73     5   73 0.9316783           1
+74     5   74 0.9330252           1
+75     5   75 0.9295456           1
+76     5   76 0.9327367           1
+77     5   77 0.9278316           1
+78     5   78 0.9321859           1
+79     5   79 0.9301839           1
+80     5   80 0.9311259           1
+81     5   81 0.9322730           1
+82     5   82 0.9293476           1
+83     5   83 0.9309775           1
+84     5   84 0.9322095           1
+85     5   85 0.9290135           1
+86     5   86 0.9317828           1
+87     5   87 0.9310216           1
+88     5   88 0.9296951           1
+89     5   89 0.9311398           1
+90     5   90 0.9298557           1
+91     5   91 0.9318568           1
+92     5   92 0.9300510           1
+93     5   93 0.9284715           1
+94     5   94 0.9293306           1
+95     5   95 0.9323036           1
+96     5   96 0.9304968           1
+97     5   97 0.9298396           1
+98     5   98 0.9311104           1
+99     5   99 0.9313791           1
+100    5  100 0.9323112           1
 
-$fc.aj.risk.basal.csh
-[1] 0.9305847</code></pre>
+$st0_pool
+[1] 0.9305847
+
+$fc_coef_pool
+[1] 1</code></pre>
 </div>
 </div>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>p2y_csh <span class="ot">&lt;-</span> <span class="fu">recal.risk.basal.csh</span>(dataA, <span class="dv">2</span>)</span>
-<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>p2y_csh</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>p2y_csh <span class="ot">&lt;-</span> <span class="fu">recal.risk.basal.csh</span>(dataA, <span class="dv">2</span>)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>p2y_csh</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>$fc.aj.risk.basal.imp.csh
-  [1] 0.9634201 0.9632221 0.9619813 0.9623927 0.9631273 0.9635449 0.9631020
-  [8] 0.9631227 0.9627720 0.9614307 0.9638519 0.9629992 0.9627283 0.9614561
- [15] 0.9629430 0.9627884 0.9628972 0.9635674 0.9627091 0.9618134 0.9642781
- [22] 0.9627810 0.9631901 0.9625161 0.9617136 0.9631420 0.9632818 0.9638287
- [29] 0.9639532 0.9626774 0.9628025 0.9625954 0.9622997 0.9619366 0.9629057
- [36] 0.9646032 0.9638481 0.9629246 0.9618577 0.9636065 0.9630628 0.9635752
- [43] 0.9631250 0.9618238 0.9622918 0.9638708 0.9637539 0.9626740 0.9625209
- [50] 0.9620242 0.9618408 0.9630357 0.9623598 0.9635018 0.9636677 0.9619034
- [57] 0.9624699 0.9630275 0.9637010 0.9633027 0.9628861 0.9616124 0.9623459
- [64] 0.9622051 0.9618501 0.9638204 0.9633171 0.9623971 0.9626282 0.9630160
- [71] 0.9628717 0.9623822 0.9632120 0.9642231 0.9623481 0.9642163 0.9613019
- [78] 0.9637627 0.9627028 0.9632069 0.9637853 0.9624422 0.9629251 0.9635911
- [85] 0.9620569 0.9633980 0.9631620 0.9626477 0.9631767 0.9621763 0.9632671
- [92] 0.9627973 0.9617842 0.9622800 0.9639151 0.9630909 0.9624385 0.9632127
- [99] 0.9631613 0.9637685
+<pre><code>$recal_df_imp
+    year .imp   st0_imp fc_coef_imp
+1      2    1 0.9634201           1
+2      2    2 0.9632221           1
+3      2    3 0.9619813           1
+4      2    4 0.9623927           1
+5      2    5 0.9631273           1
+6      2    6 0.9635449           1
+7      2    7 0.9631020           1
+8      2    8 0.9631227           1
+9      2    9 0.9627720           1
+10     2   10 0.9614307           1
+11     2   11 0.9638519           1
+12     2   12 0.9629992           1
+13     2   13 0.9627283           1
+14     2   14 0.9614561           1
+15     2   15 0.9629430           1
+16     2   16 0.9627884           1
+17     2   17 0.9628972           1
+18     2   18 0.9635674           1
+19     2   19 0.9627091           1
+20     2   20 0.9618134           1
+21     2   21 0.9642781           1
+22     2   22 0.9627810           1
+23     2   23 0.9631901           1
+24     2   24 0.9625161           1
+25     2   25 0.9617136           1
+26     2   26 0.9631420           1
+27     2   27 0.9632818           1
+28     2   28 0.9638287           1
+29     2   29 0.9639532           1
+30     2   30 0.9626774           1
+31     2   31 0.9628025           1
+32     2   32 0.9625954           1
+33     2   33 0.9622997           1
+34     2   34 0.9619366           1
+35     2   35 0.9629057           1
+36     2   36 0.9646032           1
+37     2   37 0.9638481           1
+38     2   38 0.9629246           1
+39     2   39 0.9618577           1
+40     2   40 0.9636065           1
+41     2   41 0.9630628           1
+42     2   42 0.9635752           1
+43     2   43 0.9631250           1
+44     2   44 0.9618238           1
+45     2   45 0.9622918           1
+46     2   46 0.9638708           1
+47     2   47 0.9637539           1
+48     2   48 0.9626740           1
+49     2   49 0.9625209           1
+50     2   50 0.9620242           1
+51     2   51 0.9618408           1
+52     2   52 0.9630357           1
+53     2   53 0.9623598           1
+54     2   54 0.9635018           1
+55     2   55 0.9636677           1
+56     2   56 0.9619034           1
+57     2   57 0.9624699           1
+58     2   58 0.9630275           1
+59     2   59 0.9637010           1
+60     2   60 0.9633027           1
+61     2   61 0.9628861           1
+62     2   62 0.9616124           1
+63     2   63 0.9623459           1
+64     2   64 0.9622051           1
+65     2   65 0.9618501           1
+66     2   66 0.9638204           1
+67     2   67 0.9633171           1
+68     2   68 0.9623971           1
+69     2   69 0.9626282           1
+70     2   70 0.9630160           1
+71     2   71 0.9628717           1
+72     2   72 0.9623822           1
+73     2   73 0.9632120           1
+74     2   74 0.9642231           1
+75     2   75 0.9623481           1
+76     2   76 0.9642163           1
+77     2   77 0.9613019           1
+78     2   78 0.9637627           1
+79     2   79 0.9627028           1
+80     2   80 0.9632069           1
+81     2   81 0.9637853           1
+82     2   82 0.9624422           1
+83     2   83 0.9629251           1
+84     2   84 0.9635911           1
+85     2   85 0.9620569           1
+86     2   86 0.9633980           1
+87     2   87 0.9631620           1
+88     2   88 0.9626477           1
+89     2   89 0.9631767           1
+90     2   90 0.9621763           1
+91     2   91 0.9632671           1
+92     2   92 0.9627973           1
+93     2   93 0.9617842           1
+94     2   94 0.9622800           1
+95     2   95 0.9639151           1
+96     2   96 0.9630909           1
+97     2   97 0.9624385           1
+98     2   98 0.9632127           1
+99     2   99 0.9631613           1
+100    2  100 0.9637685           1
 
-$fc.aj.risk.basal.csh
-[1] 0.9628953</code></pre>
+$st0_pool
+[1] 0.9628953
+
+$fc_coef_pool
+[1] 1</code></pre>
 </div>
 </div>
-<p>El nuevo factor para recalcular el riesgo basal (recalibrado) a 5 anios es el siguiente 0.9305847. A 2 anios es el siguiente 0.9628953.</p>
+<p>El nuevo factor para recalcular el riesgo basal (recalibrado) a 5 anios es el siguiente . A 2 anios es el siguiente .</p>
 <p>Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado solo con la actualización del riesgo basal:</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>df_recal_modC <span class="ot">&lt;-</span> p2y_csh[[<span class="dv">1</span>]] <span class="sc">|&gt;</span> </span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bind_rows</span>(p5y_csh[[<span class="dv">1</span>]])</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="fu">export</span>(df_recal_modC, <span class="fu">here</span>(<span class="st">&quot;Data&quot;</span>, <span class="st">&quot;Tidy&quot;</span>, <span class="st">&quot;equations&quot;</span>, <span class="st">&quot;df_recal_modC.rds&quot;</span>))</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(df_recal_modC)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output-display">
+
+<div data-pagedtable="false">
+  <script data-pagedtable-source type="application/json">
+{"columns":[{"label":[""],"name":["_rn_"],"type":[""],"align":["left"]},{"label":["year"],"name":[1],"type":["dbl"],"align":["right"]},{"label":[".imp"],"name":[2],"type":["int"],"align":["right"]},{"label":["st0_imp"],"name":[3],"type":["dbl"],"align":["right"]},{"label":["fc_coef_imp"],"name":[4],"type":["dbl"],"align":["right"]}],"data":[{"1":"2","2":"1","3":"0.9634201","4":"1","_rn_":"1"},{"1":"2","2":"2","3":"0.9632221","4":"1","_rn_":"2"},{"1":"2","2":"3","3":"0.9619813","4":"1","_rn_":"3"},{"1":"2","2":"4","3":"0.9623927","4":"1","_rn_":"4"},{"1":"2","2":"5","3":"0.9631273","4":"1","_rn_":"5"},{"1":"2","2":"6","3":"0.9635449","4":"1","_rn_":"6"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
+  </script>
+</div>
+</div>
+</div>
 </section>
 <section id="reestimar-coeficientes-mediante-cause-specific-hazard-models" class="level2" data-number="7">
 <h2 data-number="7" class="anchored" data-anchor-id="reestimar-coeficientes-mediante-cause-specific-hazard-models"><span class="header-section-number">7</span> Reestimar coeficientes mediante Cause-specific Hazard Models:</h2>
 <p>Primero ajustamos nuevamente un Cause-specific Hazard Models sobre el índice pronósitco y recalculamos el coeficiente para este</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>p5y_2.csh <span class="ot">&lt;-</span> <span class="fu">recal.risk.coef.csh</span>(dataA, <span class="dv">5</span>)</span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>p5y_2.csh</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>p5y_2.csh <span class="ot">&lt;-</span> <span class="fu">recal.risk.coef.csh</span>(dataA, <span class="dv">5</span>)</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>p5y_2.csh</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>$fc.aj.risk.basal.imp.csh
-  [1] 0.9222599 0.9209301 0.9194881 0.9193837 0.9211436 0.9223603 0.9203767
-  [8] 0.9207232 0.9208081 0.9195924 0.9231719 0.9222260 0.9209379 0.9186079
- [15] 0.9206570 0.9212853 0.9208987 0.9212876 0.9201086 0.9196912 0.9230541
- [22] 0.9199982 0.9212956 0.9201747 0.9200147 0.9202946 0.9211514 0.9225359
- [29] 0.9221032 0.9214308 0.9206290 0.9203710 0.9195972 0.9203257 0.9211265
- [36] 0.9226907 0.9222291 0.9205299 0.9195841 0.9211650 0.9211074 0.9220210
- [43] 0.9220194 0.9209489 0.9191571 0.9219261 0.9219155 0.9205557 0.9209373
- [50] 0.9204941 0.9195901 0.9208550 0.9202489 0.9215945 0.9213074 0.9191736
- [57] 0.9208521 0.9205098 0.9221148 0.9215933 0.9213364 0.9190774 0.9207244
- [64] 0.9198987 0.9204020 0.9220782 0.9215075 0.9204984 0.9204870 0.9219413
- [71] 0.9207523 0.9210651 0.9217075 0.9237144 0.9207124 0.9222392 0.9189992
- [78] 0.9217820 0.9213465 0.9208862 0.9222608 0.9200834 0.9218780 0.9219827
- [85] 0.9201340 0.9223602 0.9214963 0.9209732 0.9208429 0.9210371 0.9215907
- [92] 0.9210684 0.9200753 0.9209114 0.9212751 0.9205850 0.9212783 0.9209974
- [99] 0.9214913 0.9214725
+<pre><code>[[1]]
+    year .imp   st0_imp fc_coef_imp
+1      5    1 0.9222599   0.8579863
+2      5    2 0.9209301   0.8488842
+3      5    3 0.9194881   0.8442777
+4      5    4 0.9193837   0.8376610
+5      5    5 0.9211436   0.8355374
+6      5    6 0.9223603   0.8386339
+7      5    7 0.9203767   0.8346399
+8      5    8 0.9207232   0.8372842
+9      5    9 0.9208081   0.8461798
+10     5   10 0.9195924   0.8599076
+11     5   11 0.9231719   0.8442865
+12     5   12 0.9222260   0.8565733
+13     5   13 0.9209379   0.8410863
+14     5   14 0.9186079   0.8410439
+15     5   15 0.9206570   0.8356089
+16     5   16 0.9212853   0.8488051
+17     5   17 0.9208987   0.8442260
+18     5   18 0.9212876   0.8297355
+19     5   19 0.9201086   0.8331886
+20     5   20 0.9196912   0.8627078
+21     5   21 0.9230541   0.8335741
+22     5   22 0.9199982   0.8418557
+23     5   23 0.9212956   0.8523431
+24     5   24 0.9201747   0.8450253
+25     5   25 0.9200147   0.8590967
+26     5   26 0.9202946   0.8246164
+27     5   27 0.9211514   0.8321333
+28     5   28 0.9225359   0.8486054
+29     5   29 0.9221032   0.8235097
+30     5   30 0.9214308   0.8531222
+31     5   31 0.9206290   0.8408234
+32     5   32 0.9203710   0.8471010
+33     5   33 0.9195972   0.8505938
+34     5   34 0.9203257   0.8529117
+35     5   35 0.9211265   0.8429225
+36     5   36 0.9226907   0.8149723
+37     5   37 0.9222291   0.8489896
+38     5   38 0.9205299   0.8355914
+39     5   39 0.9195841   0.8583534
+40     5   40 0.9211650   0.8280847
+41     5   41 0.9211074   0.8539769
+42     5   42 0.9220210   0.8397012
+43     5   43 0.9220194   0.8594144
+44     5   44 0.9209489   0.8756736
+45     5   45 0.9191571   0.8360019
+46     5   46 0.9219261   0.8336018
+47     5   47 0.9219155   0.8402710
+48     5   48 0.9205557   0.8520057
+49     5   49 0.9209373   0.8455843
+50     5   50 0.9204941   0.8718293
+51     5   51 0.9195901   0.8638371
+52     5   52 0.9208550   0.8380719
+53     5   53 0.9202489   0.8485805
+54     5   54 0.9215945   0.8417023
+55     5   55 0.9213074   0.8357381
+56     5   56 0.9191736   0.8449292
+57     5   57 0.9208521   0.8597566
+58     5   58 0.9205098   0.8410289
+59     5   59 0.9221148   0.8402237
+60     5   60 0.9215933   0.8432948
+61     5   61 0.9213364   0.8460604
+62     5   62 0.9190774   0.8495489
+63     5   63 0.9207244   0.8526378
+64     5   64 0.9198987   0.8521920
+65     5   65 0.9204020   0.8567170
+66     5   66 0.9220782   0.8356770
+67     5   67 0.9215075   0.8411115
+68     5   68 0.9204984   0.8503780
+69     5   69 0.9204870   0.8416951
+70     5   70 0.9219413   0.8569727
+71     5   71 0.9207523   0.8340223
+72     5   72 0.9210651   0.8640173
+73     5   73 0.9217075   0.8348727
+74     5   74 0.9237144   0.8504035
+75     5   75 0.9207124   0.8550002
+76     5   76 0.9222392   0.8333245
+77     5   77 0.9189992   0.8507427
+78     5   78 0.9217820   0.8353003
+79     5   79 0.9213465   0.8587680
+80     5   80 0.9208862   0.8363234
+81     5   81 0.9222608   0.8370460
+82     5   82 0.9200834   0.8512958
+83     5   83 0.9218780   0.8515157
+84     5   84 0.9219827   0.8333939
+85     5   85 0.9201340   0.8542866
+86     5   86 0.9223602   0.8455007
+87     5   87 0.9214963   0.8467089
+88     5   88 0.9209732   0.8575195
+89     5   89 0.9208429   0.8339584
+90     5   90 0.9210371   0.8525374
+91     5   91 0.9215907   0.8354126
+92     5   92 0.9210684   0.8515528
+93     5   93 0.9200753   0.8599854
+94     5   94 0.9209114   0.8647595
+95     5   95 0.9212751   0.8291902
+96     5   96 0.9205850   0.8395640
+97     5   97 0.9212783   0.8602551
+98     5   98 0.9209974   0.8409785
+99     5   99 0.9214913   0.8369455
+100    5  100 0.9214725   0.8251928
 
-$fc.aj.risk.basal.csh
+$st0_pool
 [1] 0.9210011
 
-$fc.aj.coef.imp.csh
-  [1] 0.8579863 0.8488842 0.8442777 0.8376610 0.8355374 0.8386339 0.8346399
-  [8] 0.8372842 0.8461798 0.8599076 0.8442865 0.8565733 0.8410863 0.8410439
- [15] 0.8356089 0.8488051 0.8442260 0.8297355 0.8331886 0.8627078 0.8335741
- [22] 0.8418557 0.8523431 0.8450253 0.8590967 0.8246164 0.8321333 0.8486054
- [29] 0.8235097 0.8531222 0.8408234 0.8471010 0.8505938 0.8529117 0.8429225
- [36] 0.8149723 0.8489896 0.8355914 0.8583534 0.8280847 0.8539769 0.8397012
- [43] 0.8594144 0.8756736 0.8360019 0.8336018 0.8402710 0.8520057 0.8455843
- [50] 0.8718293 0.8638371 0.8380719 0.8485805 0.8417023 0.8357381 0.8449292
- [57] 0.8597566 0.8410289 0.8402237 0.8432948 0.8460604 0.8495489 0.8526378
- [64] 0.8521920 0.8567170 0.8356770 0.8411115 0.8503780 0.8416951 0.8569727
- [71] 0.8340223 0.8640173 0.8348727 0.8504035 0.8550002 0.8333245 0.8507427
- [78] 0.8353003 0.8587680 0.8363234 0.8370460 0.8512958 0.8515157 0.8333939
- [85] 0.8542866 0.8455007 0.8467089 0.8575195 0.8339584 0.8525374 0.8354126
- [92] 0.8515528 0.8599854 0.8647595 0.8291902 0.8395640 0.8602551 0.8409785
- [99] 0.8369455 0.8251928
-
-$fc.aj.coef.csh
+$fc_coef_pool
 [1] 0.8452107</code></pre>
 </div>
 </div>
-<p>Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es 0.8452107 y la supervivencia basal ajustada es 0.9210011.</p>
+<p>Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es y la supervivencia basal ajustada es .</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>p2y_2.csh <span class="ot">&lt;-</span> <span class="fu">recal.risk.coef.csh</span>(dataA, <span class="dv">2</span>)</span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>p2y_2.csh</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>p2y_2.csh <span class="ot">&lt;-</span> <span class="fu">recal.risk.coef.csh</span>(dataA, <span class="dv">2</span>)</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>p2y_2.csh</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>$fc.aj.risk.basal.imp.csh
-  [1] 0.9571197 0.9563843 0.9550751 0.9551792 0.9559551 0.9565869 0.9558365
-  [8] 0.9559328 0.9560483 0.9552638 0.9571185 0.9567934 0.9558590 0.9545788
- [15] 0.9557066 0.9561834 0.9559608 0.9561297 0.9554302 0.9556282 0.9570746
- [22] 0.9557096 0.9565462 0.9557047 0.9555705 0.9554081 0.9558680 0.9570423
- [29] 0.9563369 0.9561967 0.9557798 0.9557552 0.9555712 0.9555869 0.9560388
- [36] 0.9564860 0.9570884 0.9557350 0.9554723 0.9559263 0.9564357 0.9566045
- [43] 0.9569054 0.9563342 0.9549277 0.9566321 0.9566464 0.9560485 0.9558641
- [50] 0.9562825 0.9557878 0.9558853 0.9556075 0.9564988 0.9562787 0.9549660
- [57] 0.9562386 0.9558536 0.9566337 0.9564311 0.9561390 0.9550176 0.9558471
- [64] 0.9556170 0.9556358 0.9565825 0.9563265 0.9558261 0.9556952 0.9567330
- [71] 0.9557108 0.9563988 0.9561706 0.9576865 0.9560233 0.9568529 0.9548974
- [78] 0.9564543 0.9564491 0.9559647 0.9567296 0.9557777 0.9564975 0.9563800
- [85] 0.9556714 0.9567623 0.9563908 0.9563418 0.9558228 0.9558843 0.9560854
- [92] 0.9562824 0.9556858 0.9562743 0.9562312 0.9559587 0.9563207 0.9560330
- [99] 0.9561472 0.9561518
+<pre><code>[[1]]
+    year .imp   st0_imp fc_coef_imp
+1      2    1 0.9571197   0.8579863
+2      2    2 0.9563843   0.8488842
+3      2    3 0.9550751   0.8442777
+4      2    4 0.9551792   0.8376610
+5      2    5 0.9559551   0.8355374
+6      2    6 0.9565869   0.8386339
+7      2    7 0.9558365   0.8346399
+8      2    8 0.9559328   0.8372842
+9      2    9 0.9560483   0.8461798
+10     2   10 0.9552638   0.8599076
+11     2   11 0.9571185   0.8442865
+12     2   12 0.9567934   0.8565733
+13     2   13 0.9558590   0.8410863
+14     2   14 0.9545788   0.8410439
+15     2   15 0.9557066   0.8356089
+16     2   16 0.9561834   0.8488051
+17     2   17 0.9559608   0.8442260
+18     2   18 0.9561297   0.8297355
+19     2   19 0.9554302   0.8331886
+20     2   20 0.9556282   0.8627078
+21     2   21 0.9570746   0.8335741
+22     2   22 0.9557096   0.8418557
+23     2   23 0.9565462   0.8523431
+24     2   24 0.9557047   0.8450253
+25     2   25 0.9555705   0.8590967
+26     2   26 0.9554081   0.8246164
+27     2   27 0.9558680   0.8321333
+28     2   28 0.9570423   0.8486054
+29     2   29 0.9563369   0.8235097
+30     2   30 0.9561967   0.8531222
+31     2   31 0.9557798   0.8408234
+32     2   32 0.9557552   0.8471010
+33     2   33 0.9555712   0.8505938
+34     2   34 0.9555869   0.8529117
+35     2   35 0.9560388   0.8429225
+36     2   36 0.9564860   0.8149723
+37     2   37 0.9570884   0.8489896
+38     2   38 0.9557350   0.8355914
+39     2   39 0.9554723   0.8583534
+40     2   40 0.9559263   0.8280847
+41     2   41 0.9564357   0.8539769
+42     2   42 0.9566045   0.8397012
+43     2   43 0.9569054   0.8594144
+44     2   44 0.9563342   0.8756736
+45     2   45 0.9549277   0.8360019
+46     2   46 0.9566321   0.8336018
+47     2   47 0.9566464   0.8402710
+48     2   48 0.9560485   0.8520057
+49     2   49 0.9558641   0.8455843
+50     2   50 0.9562825   0.8718293
+51     2   51 0.9557878   0.8638371
+52     2   52 0.9558853   0.8380719
+53     2   53 0.9556075   0.8485805
+54     2   54 0.9564988   0.8417023
+55     2   55 0.9562787   0.8357381
+56     2   56 0.9549660   0.8449292
+57     2   57 0.9562386   0.8597566
+58     2   58 0.9558536   0.8410289
+59     2   59 0.9566337   0.8402237
+60     2   60 0.9564311   0.8432948
+61     2   61 0.9561390   0.8460604
+62     2   62 0.9550176   0.8495489
+63     2   63 0.9558471   0.8526378
+64     2   64 0.9556170   0.8521920
+65     2   65 0.9556358   0.8567170
+66     2   66 0.9565825   0.8356770
+67     2   67 0.9563265   0.8411115
+68     2   68 0.9558261   0.8503780
+69     2   69 0.9556952   0.8416951
+70     2   70 0.9567330   0.8569727
+71     2   71 0.9557108   0.8340223
+72     2   72 0.9563988   0.8640173
+73     2   73 0.9561706   0.8348727
+74     2   74 0.9576865   0.8504035
+75     2   75 0.9560233   0.8550002
+76     2   76 0.9568529   0.8333245
+77     2   77 0.9548974   0.8507427
+78     2   78 0.9564543   0.8353003
+79     2   79 0.9564491   0.8587680
+80     2   80 0.9559647   0.8363234
+81     2   81 0.9567296   0.8370460
+82     2   82 0.9557777   0.8512958
+83     2   83 0.9564975   0.8515157
+84     2   84 0.9563800   0.8333939
+85     2   85 0.9556714   0.8542866
+86     2   86 0.9567623   0.8455007
+87     2   87 0.9563908   0.8467089
+88     2   88 0.9563418   0.8575195
+89     2   89 0.9558228   0.8339584
+90     2   90 0.9558843   0.8525374
+91     2   91 0.9560854   0.8354126
+92     2   92 0.9562824   0.8515528
+93     2   93 0.9556858   0.8599854
+94     2   94 0.9562743   0.8647595
+95     2   95 0.9562312   0.8291902
+96     2   96 0.9559587   0.8395640
+97     2   97 0.9563207   0.8602551
+98     2   98 0.9560330   0.8409785
+99     2   99 0.9561472   0.8369455
+100    2  100 0.9561518   0.8251928
 
-$fc.aj.risk.basal.csh
+$st0_pool
 [1] 0.9560799
 
-$fc.aj.coef.imp.csh
-  [1] 0.8579863 0.8488842 0.8442777 0.8376610 0.8355374 0.8386339 0.8346399
-  [8] 0.8372842 0.8461798 0.8599076 0.8442865 0.8565733 0.8410863 0.8410439
- [15] 0.8356089 0.8488051 0.8442260 0.8297355 0.8331886 0.8627078 0.8335741
- [22] 0.8418557 0.8523431 0.8450253 0.8590967 0.8246164 0.8321333 0.8486054
- [29] 0.8235097 0.8531222 0.8408234 0.8471010 0.8505938 0.8529117 0.8429225
- [36] 0.8149723 0.8489896 0.8355914 0.8583534 0.8280847 0.8539769 0.8397012
- [43] 0.8594144 0.8756736 0.8360019 0.8336018 0.8402710 0.8520057 0.8455843
- [50] 0.8718293 0.8638371 0.8380719 0.8485805 0.8417023 0.8357381 0.8449292
- [57] 0.8597566 0.8410289 0.8402237 0.8432948 0.8460604 0.8495489 0.8526378
- [64] 0.8521920 0.8567170 0.8356770 0.8411115 0.8503780 0.8416951 0.8569727
- [71] 0.8340223 0.8640173 0.8348727 0.8504035 0.8550002 0.8333245 0.8507427
- [78] 0.8353003 0.8587680 0.8363234 0.8370460 0.8512958 0.8515157 0.8333939
- [85] 0.8542866 0.8455007 0.8467089 0.8575195 0.8339584 0.8525374 0.8354126
- [92] 0.8515528 0.8599854 0.8647595 0.8291902 0.8395640 0.8602551 0.8409785
- [99] 0.8369455 0.8251928
-
-$fc.aj.coef.csh
+$fc_coef_pool
 [1] 0.8452107</code></pre>
 </div>
 </div>
-<p>Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es 0.8452107 y la supervivencia basal ajustada es 0.9560799.</p>
+<p>Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es y la supervivencia basal ajustada es .</p>
+<p>Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado con la actualización del riesgo basal y los coeficientes:</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>df_recal_modD <span class="ot">&lt;-</span> p2y_2.csh[[<span class="dv">1</span>]] <span class="sc">|&gt;</span> </span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bind_rows</span>(p5y_2.csh[[<span class="dv">1</span>]])</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a><span class="fu">export</span>(df_recal_modD, <span class="fu">here</span>(<span class="st">&quot;Data&quot;</span>, <span class="st">&quot;Tidy&quot;</span>, <span class="st">&quot;equations&quot;</span>, <span class="st">&quot;df_recal_modD.rds&quot;</span>))</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(df_recal_modD)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output-display">
+
+<div data-pagedtable="false">
+  <script data-pagedtable-source type="application/json">
+{"columns":[{"label":[""],"name":["_rn_"],"type":[""],"align":["left"]},{"label":["year"],"name":[1],"type":["dbl"],"align":["right"]},{"label":[".imp"],"name":[2],"type":["int"],"align":["right"]},{"label":["st0_imp"],"name":[3],"type":["dbl"],"align":["right"]},{"label":["fc_coef_imp"],"name":[4],"type":["dbl"],"align":["right"]}],"data":[{"1":"2","2":"1","3":"0.9571197","4":"0.8579863","_rn_":"1"},{"1":"2","2":"2","3":"0.9563843","4":"0.8488842","_rn_":"2"},{"1":"2","2":"3","3":"0.9550751","4":"0.8442777","_rn_":"3"},{"1":"2","2":"4","3":"0.9551792","4":"0.8376610","_rn_":"4"},{"1":"2","2":"5","3":"0.9559551","4":"0.8355374","_rn_":"5"},{"1":"2","2":"6","3":"0.9565869","4":"0.8386339","_rn_":"6"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
+  </script>
+</div>
+</div>
+</div>
 </section>
 <section id="tabla-de-recalibracion" class="level2" data-number="8">
 <h2 data-number="8" class="anchored" data-anchor-id="tabla-de-recalibracion"><span class="header-section-number">8</span> Tabla de recalibracion</h2>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>datos.recal <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">metodo =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">&quot;A&quot;</span>, <span class="st">&quot;B&quot;</span>, <span class="st">&quot;C&quot;</span>, <span class="st">&quot;D&quot;</span>), <span class="at">each =</span> <span class="dv">2</span>),</span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">year =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">5</span>), <span class="dv">2</span>), </span>
-<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  </span>
-<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">sobrev_recal =</span> <span class="fu">c</span>(p2y<span class="sc">$</span>fc.aj.risk.basal.mean, </span>
-<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>                   p5y<span class="sc">$</span>fc.aj.risk.basal.mean, </span>
-<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>                   p2y_2<span class="sc">$</span>fc.aj.risk.basal, </span>
-<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>                   p5y_2<span class="sc">$</span>fc.aj.risk.basal,</span>
-<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>                   p2y_csh<span class="sc">$</span>fc.aj.risk.basal.csh, </span>
-<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>                   p5y_csh<span class="sc">$</span>fc.aj.risk.basal.csh, </span>
-<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>                   p2y_2.csh<span class="sc">$</span>fc.aj.risk.basal.csh, </span>
-<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a>                   p5y_2.csh<span class="sc">$</span>fc.aj.risk.basal.csh), </span>
-<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">fc_coef =</span> <span class="fu">c</span>(<span class="st">&quot;No aplica&quot;</span>, </span>
-<span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a>              <span class="st">&quot;No aplica&quot;</span>, </span>
-<span id="cb20-15"><a href="#cb20-15" aria-hidden="true" tabindex="-1"></a>              p2y_2<span class="sc">$</span>fc.aj.coef, </span>
-<span id="cb20-16"><a href="#cb20-16" aria-hidden="true" tabindex="-1"></a>              p5y_2<span class="sc">$</span>fc.aj.coef, </span>
-<span id="cb20-17"><a href="#cb20-17" aria-hidden="true" tabindex="-1"></a>              <span class="st">&quot;No aplica&quot;</span>, </span>
-<span id="cb20-18"><a href="#cb20-18" aria-hidden="true" tabindex="-1"></a>              <span class="st">&quot;No aplica&quot;</span>, </span>
-<span id="cb20-19"><a href="#cb20-19" aria-hidden="true" tabindex="-1"></a>              p2y_2.csh<span class="sc">$</span>fc.aj.coef.csh, </span>
-<span id="cb20-20"><a href="#cb20-20" aria-hidden="true" tabindex="-1"></a>              p5y_2.csh<span class="sc">$</span>fc.aj.coef.csh)</span>
-<span id="cb20-21"><a href="#cb20-21" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb20-22"><a href="#cb20-22" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb20-23"><a href="#cb20-23" aria-hidden="true" tabindex="-1"></a>datos.recal <span class="sc">|&gt;</span> </span>
-<span id="cb20-24"><a href="#cb20-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">kbl</span>() <span class="sc">|&gt;</span> </span>
-<span id="cb20-25"><a href="#cb20-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">kable_classic</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>datos.recal <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">metodo =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">&quot;A&quot;</span>, <span class="st">&quot;B&quot;</span>, <span class="st">&quot;C&quot;</span>, <span class="st">&quot;D&quot;</span>), <span class="at">each =</span> <span class="dv">2</span>),</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">year =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">5</span>), <span class="dv">2</span>), </span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">sobrev_recal =</span> <span class="fu">c</span>(p2y<span class="sc">$</span>st0_pool, </span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>                   p5y<span class="sc">$</span>st0_pool, </span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>                   p2y_2<span class="sc">$</span>st0_pool, </span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>                   p5y_2<span class="sc">$</span>st0_pool,</span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>                   p2y_csh<span class="sc">$</span>st0_pool, </span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>                   p5y_csh<span class="sc">$</span>st0_pool, </span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>                   p2y_2.csh<span class="sc">$</span>st0_pool, </span>
+<span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a>                   p5y_2.csh<span class="sc">$</span>st0_pool), </span>
+<span id="cb24-15"><a href="#cb24-15" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb24-16"><a href="#cb24-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">fc_coef =</span> <span class="fu">c</span>(p2y<span class="sc">$</span>fc_coef_pool, </span>
+<span id="cb24-17"><a href="#cb24-17" aria-hidden="true" tabindex="-1"></a>              p5y<span class="sc">$</span>fc_coef_pool, </span>
+<span id="cb24-18"><a href="#cb24-18" aria-hidden="true" tabindex="-1"></a>              p2y_2<span class="sc">$</span>fc_coef_pool, </span>
+<span id="cb24-19"><a href="#cb24-19" aria-hidden="true" tabindex="-1"></a>              p5y_2<span class="sc">$</span>fc_coef_pool, </span>
+<span id="cb24-20"><a href="#cb24-20" aria-hidden="true" tabindex="-1"></a>              p2y_csh<span class="sc">$</span>fc_coef_pool, </span>
+<span id="cb24-21"><a href="#cb24-21" aria-hidden="true" tabindex="-1"></a>              p5y_csh<span class="sc">$</span>fc_coef_pool, </span>
+<span id="cb24-22"><a href="#cb24-22" aria-hidden="true" tabindex="-1"></a>              p2y_2.csh<span class="sc">$</span>fc_coef_pool, </span>
+<span id="cb24-23"><a href="#cb24-23" aria-hidden="true" tabindex="-1"></a>              p5y_2.csh<span class="sc">$</span>fc_coef_pool)</span>
+<span id="cb24-24"><a href="#cb24-24" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb24-25"><a href="#cb24-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-26"><a href="#cb24-26" aria-hidden="true" tabindex="-1"></a><span class="fu">export</span>(datos.recal, <span class="fu">here</span>(<span class="st">&quot;Data&quot;</span>, <span class="st">&quot;Tidy&quot;</span>, <span class="st">&quot;equations&quot;</span>, <span class="st">&quot;recal_loads.rds&quot;</span> ))</span>
+<span id="cb24-27"><a href="#cb24-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-28"><a href="#cb24-28" aria-hidden="true" tabindex="-1"></a>datos.recal <span class="sc">|&gt;</span> </span>
+<span id="cb24-29"><a href="#cb24-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">kbl</span>() <span class="sc">|&gt;</span> </span>
+<span id="cb24-30"><a href="#cb24-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">kable_classic</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output-display">
 <table class="lightable-classic table table-sm table-striped small" data-quarto-postprocess="true">
 <thead>
@@ -5023,7 +5723,7 @@ $fc.aj.coef.csh
 <th style="text-align: left;" data-quarto-table-cell-role="th">metodo</th>
 <th style="text-align: right;" data-quarto-table-cell-role="th">year</th>
 <th style="text-align: right;" data-quarto-table-cell-role="th">sobrev_recal</th>
-<th style="text-align: left;" data-quarto-table-cell-role="th">fc_coef</th>
+<th style="text-align: right;" data-quarto-table-cell-role="th">fc_coef</th>
 </tr>
 </thead>
 <tbody>
@@ -5031,49 +5731,49 @@ $fc.aj.coef.csh
 <td style="text-align: left;">A</td>
 <td style="text-align: right;">2</td>
 <td style="text-align: right;">0.9610946</td>
-<td style="text-align: left;">No aplica</td>
+<td style="text-align: right;">1.0000000</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">A</td>
 <td style="text-align: right;">5</td>
 <td style="text-align: right;">0.9204742</td>
-<td style="text-align: left;">No aplica</td>
+<td style="text-align: right;">1.0000000</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">B</td>
 <td style="text-align: right;">2</td>
 <td style="text-align: right;">0.9535354</td>
-<td style="text-align: left;">0.845210668389847</td>
+<td style="text-align: right;">0.8452107</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">B</td>
 <td style="text-align: right;">5</td>
 <td style="text-align: right;">0.9077863</td>
-<td style="text-align: left;">0.845210668389847</td>
+<td style="text-align: right;">0.8452107</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">C</td>
 <td style="text-align: right;">2</td>
 <td style="text-align: right;">0.9628953</td>
-<td style="text-align: left;">No aplica</td>
+<td style="text-align: right;">1.0000000</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">C</td>
 <td style="text-align: right;">5</td>
 <td style="text-align: right;">0.9305847</td>
-<td style="text-align: left;">No aplica</td>
+<td style="text-align: right;">1.0000000</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">D</td>
 <td style="text-align: right;">2</td>
 <td style="text-align: right;">0.9560799</td>
-<td style="text-align: left;">0.845210668389847</td>
+<td style="text-align: right;">0.8452107</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">D</td>
 <td style="text-align: right;">5</td>
 <td style="text-align: right;">0.9210011</td>
-<td style="text-align: left;">0.845210668389847</td>
+<td style="text-align: right;">0.8452107</td>
 </tr>
 </tbody>
 </table>
@@ -5085,7 +5785,7 @@ $fc.aj.coef.csh
 <section id="ticket-de-reproducibilidad" class="level2" data-number="9">
 <h2 data-number="9" class="anchored" data-anchor-id="ticket-de-reproducibilidad"><span class="header-section-number">9</span> Ticket de Reproducibilidad</h2>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>R version 4.3.3 (2024-02-29 ucrt)
 Platform: x86_64-w64-mingw32/x64 (64-bit)
@@ -5095,9 +5795,11 @@ Matrix products: default
 
 
 locale:
-[1] LC_COLLATE=Spanish_Peru.utf8  LC_CTYPE=Spanish_Peru.utf8   
-[3] LC_MONETARY=Spanish_Peru.utf8 LC_NUMERIC=C                 
-[5] LC_TIME=Spanish_Peru.utf8    
+[1] LC_COLLATE=English_United States.utf8 
+[2] LC_CTYPE=English_United States.utf8   
+[3] LC_MONETARY=English_United States.utf8
+[4] LC_NUMERIC=C                          
+[5] LC_TIME=English_United States.utf8    
 
 time zone: America/Lima
 tzcode source: internal
@@ -5107,39 +5809,39 @@ attached base packages:
 [8] methods   base     
 
 other attached packages:
- [1] smplot2_0.1.0              DescTools_0.99.54         
- [3] naniar_1.1.0               mice_3.16.0               
- [5] PerformanceAnalytics_2.0.4 xts_0.13.2                
- [7] VIM_6.2.2                  colorspace_2.1-0          
- [9] janitor_2.2.0              gt_0.10.1                 
-[11] DiagrammeR_1.0.11          ggtext_0.1.2              
-[13] htmltools_0.5.8            devtools_2.4.5            
-[15] usethis_2.2.3              gghalves_0.1.4            
-[17] xml2_1.3.6                 downlit_0.4.3             
-[19] broom_1.0.5                dcurves_0.4.0             
-[21] glue_1.7.0                 labelled_2.12.0           
-[23] scales_1.3.0               cowplot_1.1.3             
-[25] ggsci_3.0.3                patchwork_1.2.0           
-[27] webshot_0.5.5              rsample_1.2.1             
-[29] forcats_1.0.0              stringr_1.5.1             
-[31] purrr_1.0.2                readr_2.1.5               
-[33] tidyr_1.3.1                tibble_3.2.1              
-[35] tidyverse_2.0.0            gtsummary_1.7.2           
-[37] flextable_0.9.5            knitr_1.45                
-[39] plotrix_3.8-4              mstate_0.3.2              
-[41] cmprsk_2.2-11              skimr_2.1.5               
-[43] here_1.0.1                 pmsampsize_1.1.3          
-[45] lmtest_0.9-40              zoo_1.8-12                
-[47] rms_6.8-0                  margins_0.3.26.1          
-[49] pec_2023.04.12             prodlim_2023.08.28        
-[51] pseudo_1.4.3               KMsurv_0.1-5              
-[53] Hmisc_5.1-2                boot_1.3-30               
-[55] kableExtra_1.4.0           geepack_1.3.10            
-[57] gridExtra_2.3              riskRegression_2023.12.21 
-[59] survminer_0.4.9            ggpubr_0.6.0              
-[61] survival_3.5-8             qwraps2_0.6.0             
-[63] ggplot2_3.5.0              dplyr_1.1.4               
-[65] lubridate_1.9.3           
+ [1] smplot2_0.1.0              rio_1.0.1                 
+ [3] DescTools_0.99.54          naniar_1.1.0              
+ [5] mice_3.16.0                PerformanceAnalytics_2.0.4
+ [7] xts_0.13.2                 VIM_6.2.2                 
+ [9] colorspace_2.1-0           janitor_2.2.0             
+[11] gt_0.10.1                  DiagrammeR_1.0.11         
+[13] ggtext_0.1.2               htmltools_0.5.8           
+[15] devtools_2.4.5             usethis_2.2.3             
+[17] gghalves_0.1.4             xml2_1.3.6                
+[19] downlit_0.4.3              broom_1.0.5               
+[21] dcurves_0.4.0              glue_1.7.0                
+[23] labelled_2.12.0            scales_1.3.0              
+[25] cowplot_1.1.3              ggsci_3.0.3               
+[27] patchwork_1.2.0            webshot_0.5.5             
+[29] rsample_1.2.1              forcats_1.0.0             
+[31] stringr_1.5.1              purrr_1.0.2               
+[33] readr_2.1.5                tidyr_1.3.1               
+[35] tibble_3.2.1               tidyverse_2.0.0           
+[37] gtsummary_1.7.2            flextable_0.9.5           
+[39] knitr_1.45                 plotrix_3.8-4             
+[41] mstate_0.3.2               cmprsk_2.2-11             
+[43] skimr_2.1.5                here_1.0.1                
+[45] pmsampsize_1.1.3           lmtest_0.9-40             
+[47] zoo_1.8-12                 rms_6.8-0                 
+[49] margins_0.3.26.1           pec_2023.04.12            
+[51] prodlim_2023.08.28         pseudo_1.4.3              
+[53] KMsurv_0.1-5               Hmisc_5.1-2               
+[55] boot_1.3-30                kableExtra_1.4.0          
+[57] geepack_1.3.10             gridExtra_2.3             
+[59] riskRegression_2023.12.21  survminer_0.4.9           
+[61] ggpubr_0.6.0               survival_3.5-8            
+[63] qwraps2_0.6.0              ggplot2_3.5.0             
+[65] dplyr_1.1.4                lubridate_1.9.3           
 
 loaded via a namespace (and not attached):
   [1] fs_1.6.3                httr_1.4.7              RColorBrewer_1.1-3     
@@ -5151,47 +5853,48 @@ loaded via a namespace (and not attached):
  [19] officer_0.6.5           sandwich_3.1-0          mvtnorm_1.2-4          
  [22] survMisc_0.5.6          robustbase_0.99-2       polspline_1.1.24       
  [25] proxy_0.4-27            askpass_1.2.0           systemfonts_1.0.6      
- [28] foreign_0.8-86          gfonts_0.2.0            svglite_2.1.3          
- [31] parallelly_1.37.1       sessioninfo_1.2.2       pwr_1.3-0              
- [34] readxl_1.4.3            rstudioapi_0.16.0       httpcode_0.3.0         
- [37] shape_1.4.6.1           visNetwork_2.1.2        generics_0.1.3         
- [40] car_3.1-2               zip_2.3.1               Matrix_1.6-5           
- [43] fansi_1.0.6             prediction_0.3.14       abind_1.4-5            
- [46] lifecycle_1.0.4         multcomp_1.4-25         yaml_2.3.8             
- [49] snakecase_0.11.1        carData_3.0-5           promises_1.2.1         
- [52] mitml_0.4-5             crayon_1.5.2            miniUI_0.1.1.1         
- [55] lattice_0.22-5          haven_2.5.4             pillar_1.9.0           
- [58] gld_2.6.6               future.apply_1.11.2     codetools_0.2-19       
- [61] pan_1.9                 fontLiberation_0.1.0    data.table_1.15.4      
- [64] broom.helpers_1.14.0    remotes_2.5.0           vcd_1.4-12             
- [67] vctrs_0.6.5             cellranger_1.1.0        gtable_0.3.4           
- [70] cachem_1.0.8            xfun_0.43               mime_0.12              
- [73] iterators_1.0.14        lava_1.8.0              ellipsis_0.3.2         
- [76] TH.data_1.1-2           nlme_3.1-164            fontquiver_0.2.1       
- [79] rprojroot_2.0.4         rpart_4.1.23            nnet_7.3-19            
- [82] Exact_3.2               tidyselect_1.2.1        sdamr_0.2.0            
- [85] compiler_4.3.3          curl_5.2.1              glmnet_4.1-8           
- [88] htmlTable_2.4.2         expm_0.999-9            SparseM_1.81           
- [91] fontBitstreamVera_0.1.1 checkmate_2.3.1         DEoptimR_1.1-3         
- [94] quadprog_1.5-8          digest_0.6.35           minqa_1.2.6            
- [97] rmarkdown_2.26          pkgconfig_2.0.3         base64enc_0.1-3        
-[100] lme4_1.1-35.2           highr_0.10              fastmap_1.1.1          
-[103] rlang_1.1.3             htmlwidgets_1.6.4       shiny_1.8.1            
-[106] jsonlite_1.8.8          magrittr_2.0.3          Formula_1.2-5          
-[109] munsell_0.5.0           Rcpp_1.0.12             gdtools_0.3.7          
-[112] visdat_0.6.0            furrr_0.3.1             stringi_1.8.3          
-[115] rootSolve_1.8.2.4       MASS_7.3-60.0.1         pkgbuild_1.4.4         
-[118] parallel_4.3.3          listenv_0.9.1           lmom_3.0               
-[121] mets_1.3.4              gridtext_0.1.5          hms_1.1.3              
-[124] timereg_2.0.5           uuid_1.2-0              ranger_0.16.0          
-[127] ggsignif_0.6.4          pkgload_1.3.4           crul_1.4.0             
-[130] evaluate_0.23           laeken_0.5.3            nloptr_2.0.3           
-[133] tzdb_0.4.0              foreach_1.5.2           httpuv_1.6.15          
-[136] MatrixModels_0.5-3      openssl_2.1.1           future_1.33.2          
-[139] km.ci_0.5-6             xtable_1.8-4            e1071_1.7-14           
-[142] rstatix_0.7.2           later_1.3.2             viridisLite_0.4.2      
-[145] class_7.3-22            ragg_1.3.0              memoise_2.0.1          
-[148] cluster_2.1.6           timechange_0.3.0        globals_0.16.3         </code></pre>
+ [28] foreign_0.8-86          R.utils_2.12.3          gfonts_0.2.0           
+ [31] svglite_2.1.3           parallelly_1.37.1       sessioninfo_1.2.2      
+ [34] pwr_1.3-0               readxl_1.4.3            rstudioapi_0.16.0      
+ [37] httpcode_0.3.0          shape_1.4.6.1           visNetwork_2.1.2       
+ [40] generics_0.1.3          car_3.1-2               zip_2.3.1              
+ [43] Matrix_1.6-5            fansi_1.0.6             prediction_0.3.14      
+ [46] abind_1.4-5             R.methodsS3_1.8.2       lifecycle_1.0.4        
+ [49] multcomp_1.4-25         yaml_2.3.8              snakecase_0.11.1       
+ [52] carData_3.0-5           promises_1.2.1          mitml_0.4-5            
+ [55] crayon_1.5.2            miniUI_0.1.1.1          lattice_0.22-5         
+ [58] haven_2.5.4             pillar_1.9.0            gld_2.6.6              
+ [61] future.apply_1.11.2     codetools_0.2-19        pan_1.9                
+ [64] fontLiberation_0.1.0    data.table_1.15.4       broom.helpers_1.14.0   
+ [67] remotes_2.5.0           vcd_1.4-12              vctrs_0.6.5            
+ [70] cellranger_1.1.0        gtable_0.3.4            cachem_1.0.8           
+ [73] xfun_0.43               mime_0.12               iterators_1.0.14       
+ [76] lava_1.8.0              ellipsis_0.3.2          TH.data_1.1-2          
+ [79] nlme_3.1-164            fontquiver_0.2.1        rprojroot_2.0.4        
+ [82] rpart_4.1.23            nnet_7.3-19             Exact_3.2              
+ [85] tidyselect_1.2.1        sdamr_0.2.0             compiler_4.3.3         
+ [88] curl_5.2.1              glmnet_4.1-8            htmlTable_2.4.2        
+ [91] expm_0.999-9            SparseM_1.81            fontBitstreamVera_0.1.1
+ [94] checkmate_2.3.1         DEoptimR_1.1-3          quadprog_1.5-8         
+ [97] digest_0.6.35           minqa_1.2.6             rmarkdown_2.26         
+[100] pkgconfig_2.0.3         base64enc_0.1-3         lme4_1.1-35.2          
+[103] highr_0.10              fastmap_1.1.1           rlang_1.1.3            
+[106] htmlwidgets_1.6.4       shiny_1.8.1             jsonlite_1.8.8         
+[109] R.oo_1.26.0             magrittr_2.0.3          Formula_1.2-5          
+[112] munsell_0.5.0           Rcpp_1.0.12             gdtools_0.3.7          
+[115] visdat_0.6.0            furrr_0.3.1             stringi_1.8.3          
+[118] rootSolve_1.8.2.4       MASS_7.3-60.0.1         pkgbuild_1.4.4         
+[121] parallel_4.3.3          listenv_0.9.1           lmom_3.0               
+[124] mets_1.3.4              gridtext_0.1.5          hms_1.1.3              
+[127] timereg_2.0.5           uuid_1.2-0              ranger_0.16.0          
+[130] ggsignif_0.6.4          pkgload_1.3.4           crul_1.4.0             
+[133] evaluate_0.23           laeken_0.5.3            nloptr_2.0.3           
+[136] tzdb_0.4.0              foreach_1.5.2           httpuv_1.6.15          
+[139] MatrixModels_0.5-3      openssl_2.1.1           future_1.33.2          
+[142] km.ci_0.5-6             xtable_1.8-4            e1071_1.7-14           
+[145] rstatix_0.7.2           later_1.3.2             viridisLite_0.4.2      
+[148] class_7.3-22            ragg_1.3.0              memoise_2.0.1          
+[151] cluster_2.1.6           timechange_0.3.0        globals_0.16.3         </code></pre>
 </div>
 </div>
 </section>

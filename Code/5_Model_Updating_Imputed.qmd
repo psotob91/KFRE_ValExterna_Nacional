@@ -146,7 +146,7 @@ dataA <- dataA |>
 # dataA.imp$loggedEvents
 ```
 
-## Reestimar riesgo basal usando Cox:
+## Metodo A: Reestimar riesgo basal usando Cox
 
 Bajo este enfoque de recalibración, solo reestimaremos el riesgo basal: 
 
@@ -174,7 +174,7 @@ head(df_recal_modA)
 ```
 
 
-## Reestimar coeficientes mediante Cox: 
+## Metodo B: Reestimar coeficientes mediante Cox
 
 Primero ajustamos nuevamente una regresión del cox sobre el índice pronósitco y recalculamos el coeficiente para este
 
@@ -201,7 +201,7 @@ export(df_recal_modB, here("Data", "Tidy", "equations", "df_recal_modB.rds"))
 head(df_recal_modB)
 ```
 
-## Reestimar riesgo basal usando Cause-specific Hazard Models:
+## Metodo C: Reestimar riesgo basal usando Cause-specific Hazard Models
 
 Bajo este enfoque de recalibración, solo reestimaremos el riesgo basal: 
 
@@ -228,7 +228,7 @@ head(df_recal_modC)
 ```
 
 
-## Reestimar coeficientes mediante Cause-specific Hazard Models: 
+## Metodo D: Reestimar coeficientes mediante Cause-specific Hazard Models 
 
 Primero ajustamos nuevamente un Cause-specific Hazard Models sobre el índice pronósitco y recalculamos el coeficiente para este
 
