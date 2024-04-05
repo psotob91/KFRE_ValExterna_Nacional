@@ -1,40 +1,10 @@
-process_imp_cal_plot <- function(i, vdata, primary_event, horizon, type, n_internal_knots = 5) {
+process_imp_cal_plot <- function(i, vdata, primary_event, horizon, 
+                                 type, n_internal_knots = 5) {
   
   if (type == "pseudoval_loess") {
     
-    if (i == 0) {
-      
-      vdata_filt <- vdata |>  
-        filter(.imp == 0) |> 
-        drop_na(pred, time, eventd)
-      
-      vdata_elim <- vdata |> 
-        filter(.imp == 0) |> 
-        select(.imp, .id, eventd) |> 
-        anti_join(vdata_filt, by = ".id") |> 
-        mutate(ID = .id, 
-               times = horizon, 
-               pseudovalue = as.numeric(NA), 
-               time = as.numeric(NA), 
-               status = case_match(eventd, 
-                                   c(1, 2) ~ 1, 
-                                   0 ~ 0), 
-               event = case_match(eventd, 
-                                  1 ~ 1, 
-                                  2 ~ 2, 
-                                  0 ~ 3), 
-               WTi = as.numeric(NA), 
-               model = "csh_validation", 
-               risk = as.numeric(NA), 
-               Wt = as.numeric(NA)) |> 
-        select(-eventd) |> 
-        select(.imp, .id, ID, times, pseudovalue, time, status, event, WTi, model, 
-               risk, Wt)
-      
-    } else {
-      vdata_filt <- vdata %>% 
-        filter(.imp == i) 
-    }
+    vdata_filt <- vdata %>% 
+      filter(.imp == i) 
     
     pred <- as.matrix(vdata_filt$pred)
     
@@ -54,43 +24,25 @@ process_imp_cal_plot <- function(i, vdata, primary_event, horizon, type, n_inter
       mutate(.id = vdata_filt$.id, .imp = as.integer(i)) |> 
       select(.imp, .id, everything()) 
     
-    if (i == 0) {
-      datos <- datos |> 
-        mutate(ID = .id)
-      
-      datos <- datos |> 
-        bind_rows(vdata_elim) |> 
-        arrange(.imp, .id)
-      
       return(datos)
-      
-    } else {
-      return(datos)
-    }
+    
   } else if (type == "subdist_hazard") {
     
-    if (i == 0) {
-      
-      vdata_filt <- vdata |>  
-        filter(.imp == 0) |> 
-        drop_na(pred, time, eventd) 
-      
-      vdata_elim <- vdata |> 
-        filter(.imp == 0) |> 
-        select(.imp, .id) |> 
-        anti_join(vdata_filt, by = ".id") |> 
-        mutate(obs = as.numeric(NA), 
-               risk = as.numeric(NA)) |> 
-        select(.imp, .id, obs, risk)
-      
-    } else {
-      vdata_filt <- vdata %>% 
-        filter(.imp == i) 
-    }
+    vdata_filt <- vdata %>% 
+      filter(.imp == i) 
+    
+    pred <- vdata_filt$pred
+    
+    # cll_pp <- log(-log(1 - pp))
+    # rcs_pp <- ns(cll_pp, df = n_internal_knots + 1)
+    # colnames(rcs_pp) <- paste0("basisf_", colnames(rcs_pp))
+    # 
+    # vdata_bis_pp <- as.data.frame(rcs_pp)
     
     # 5 knots seems to give somewhat equivalent graph to pseudo method with bw = 0.05
     rcs_vdata <- ns(vdata_filt$cll_pred, df = n_internal_knots + 1)
     colnames(rcs_vdata) <- paste0("basisf_", colnames(rcs_vdata))
+    
     # vdata_bis <- cbind.data.frame(vdata_filt, rcs_vdata)
     vdata_bis <- vdata_filt |> 
       bind_cols(as.data.frame(rcs_vdata))
@@ -109,8 +61,10 @@ process_imp_cal_plot <- function(i, vdata, primary_event, horizon, type, n_inter
       variance = FALSE, 
       y = FALSE
     )
-  
+    
     obs <- predict(calib_fgr, times = horizon, newdata = vdata_bis)
+    
+    # obs_pp <- predict(calib_fgr, times = horizon, newdata = vdata_bis_pp)
     
     # Add observed and predicted together in a data frame
     datos <- data.frame(
@@ -120,16 +74,17 @@ process_imp_cal_plot <- function(i, vdata, primary_event, horizon, type, n_inter
       "risk" = vdata_bis$pred
     )
     
-    if (i == 0) {
-      datos <- datos |> 
-        bind_rows(vdata_elim) |> 
-        arrange(.imp, .id)
-      
-      return(datos)
-      
-    } else {
-      return(datos)
-    }
+    # datos.pp <- data.frame(
+    #   .imp = i, 
+    #   "obs" = obs_pp, 
+    #   "risk" = pp, 
+    #   type = "fixed"
+    # )
+    
+    # datos_mod <- datos |> 
+    #   bind_rows(datos_pp = datos.pp)
+    
+    return(datos)
     
   } else {
     print("Error: Method not implemented")

@@ -162,7 +162,8 @@ imp.datosA <- imp.datosA |>
          risk5y = kfre_pr(imp.datosA, 5), 
          eventdf = factor(eventd)) |> 
   select(.imp, .id, time, eventd, eventdf, risk2y, risk5y) |>  
-  filter(.imp != 0) 
+  filter(.imp != 0) |> 
+  filter(.imp <= 3)
 ```
 
 
@@ -301,22 +302,22 @@ vdata <- imp.datosA %>%
   mutate(cll_pred = log(-log(1 - pred)))
 
 future::plan("multisession", workers = n_cores)
-
 subdist_df_imp <- future_map(1:max(vdata$.imp),
                          process_imp_cal_plot, 
                          vdata = vdata, 
                          primary_event = primary_event, 
                          horizon = horizon, 
                          type = "subdist_hazard", 
-                         n_internal_knots = n_internal_knots,
+                         n_internal_knots = n_internal_knots, 
                          .options = furrr_options(seed = seed, 
                                                   packages = c("riskRegression", 
                                                                "survival", 
                                                                "splines", 
                                                                "cmprsk",
                                                                "tidyverse")), 
-                         .progress = TRUE) 
+                         .progress = TRUE)
 
+# 5 knots seems to give somewhat equivalent graph to pseudo method with bw = 0.05
 subdist_df_imp <- subdist_df_imp |> 
   bind_rows() |>  
   arrange(risk)
@@ -367,8 +368,9 @@ rio::export(subdist_df_dec, here("Data", "Tidy", "subdist_df_dec_3a4_2y.rds"))
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
-  geom_line(data = subdist_df_stack, aes(x = risk, y = obs_stack),
-            alpha = 1, color = "blue") +
+  geom_line(data = subdist_df_stack, 
+            aes(x = risk, y = obs_stack),
+            alpha = 0.5, color = "blue") +
   geom_point(data = subdist_df_dec,
              aes(x = risk_dec, y = obs_dec),
              shape = 23,
@@ -384,12 +386,17 @@ ggplot() +
   coord_fixed(ratio = 1, expand = TRUE)  -> plot_mod0_2y
 
 # Grafico de calibracion con curvas imputadas
-plot_mod0_2y + 
-  geom_line(data = subdist_df_imp, aes(x = risk, y = obs, group = .imp),
-            alpha = 0.1, color = "#38B8F7") -> plot_mod0_imp_2y
+# plot_mod0_2y + 
+#   geom_line(data = subdist_df_imp, aes(x = risk, y = obs, group = .imp),
+#             alpha = 0.1, color = "#38B8F7") -> plot_mod0_imp_2y
 
 gc()
 
+plot_mod0_2y
+```
+
+
+```{r}
 # A 5 años----
 horizon <- 5
 

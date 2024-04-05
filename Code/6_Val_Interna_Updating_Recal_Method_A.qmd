@@ -1936,6 +1936,35 @@ gc()
 knitr::include_graphics(here("Figures", "Plot_Calibration_imputed_metD.png"))
 ```
 
+## Comparacion de modelos
+
+```{r}
+plot_cal_metA <- import(here("Data", "Tidy", "plot_cal_metA.rds"))
+plot_cal_metB <- import(here("Data", "Tidy", "plot_cal_metB.rds"))
+plot_cal_metC <- import(here("Data", "Tidy", "plot_cal_metC.rds"))
+plot_cal_metD <- import(here("Data", "Tidy", "plot_cal_metD.rds"))
+```
+
+```{r}
+plot_cal_metA | plot_cal_metB | plot_cal_metC | plot_cal_metD -> plot_comp_calib
+
+ggsave(filename = "Plot_Compare_Methods.png", 
+       plot = plot_comp_calib, 
+       device = "png", 
+       path = here("Figures"), 
+       scale = 2.5, 
+       width = 12, 
+       height = 6, 
+       units = "cm")
+```
+
+
+```{r}
+#| echo: false
+knitr::include_graphics(here("Figures", "Plot_Compare_Methods.png"))
+```
+
+
 ## Ticket de Reprocubilidad
 
 ```{r}
