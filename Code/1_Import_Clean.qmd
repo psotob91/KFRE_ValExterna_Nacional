@@ -2,39 +2,17 @@
 title: "1 Codigo Reproducible: Preparación y Limpieza de Datos - Recalibración de modelo KFRE para predecir falla renal en asegurados de EsSalud"
 author: "Percy Soto Becerra"
 format: 
-  html:
-   theme: cerulean
+  html: 
    toc: true
    number-sections: true
    df-print: paged
    page-layout: full
    embed-resources: true
-   code-fold: true
-execute: 
-  warning: false
-  message: false
 ---
 
 ## Cargar paquetes
 
 ```{r}
-#| label: load-packages
-#| include: true
-
-rm(list = ls())
-
-if (!require("pacman")) {
-  install.packages("pacman")
-}
-
-pacman::p_unload(all)
-
-if (!require("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
-
-if (!require("survcomp")) 
-  BiocManager::install("survcomp")
-
 if (!require("pacman")) {
   install.packages("pacman")
 }
@@ -47,11 +25,11 @@ pacman::p_load(
   janitor, 
   naniar, 
   summarytools, 
-  labelled, 
-  survcomp
+  labelled
 )
-```
 
+library(survcomp)
+```
 
 ## Importar datos
 
@@ -63,31 +41,16 @@ Vamos a transformar el nombre de las variables:
 
 ```{r}
 data_dial_sig <- import(here("Data", "Raw", "25082023_bd_dial_sig.csv"))
-```
-
-```{r}
-glimpse(data_dial_sig)
-```
-```{r}
-data_dial_sig |> count(`TIPO DE DOC`)
-```
-
-
-```{r}
 head(data_dial_sig, 10)
 ```
 
 ```{r}
 data_dial_sig2 <- data_dial_sig |> 
   rename(auto_cor = AUTOGENERADO, 
-         dial_date = `FECHA DE 1ERA HEMODIALISIS`, 
-         tipo_doc = `TIPO DE DOC`, 
-         dni = `NRO DE DOC`) |> 
+         dial_date = `FECHA DE 1ERA HEMODIALISIS`) |> 
   mutate(auto_cor = str_trim(auto_cor), 
-         dial_date = dmy(dial_date), 
-         tipo_doc = case_when(tipo_doc %in% c("L", "D") ~ "DNI/LE",
-                              TRUE ~ "Otro")) |> 
-  select(tipo_doc, dni, auto_cor, dial_date)
+         dial_date = dmy(dial_date)) |> 
+  select(auto_cor, dial_date)
 
 head(data_dial_sig2)
 ```
@@ -106,14 +69,10 @@ data_dial_sscc
 ```{r}
 data_dial_sscc2 <- data_dial_sscc |> 
   rename(auto_cor = AUTOGENERADO, 
-         dial_date = `FECHA 1ERA HEMODIALISIS`, 
-         tipo_doc = `TIPO DE DOC`, 
-         dni = `NRO DE DOC`) |> 
+         dial_date = `FECHA 1ERA HEMODIALISIS`) |> 
   mutate(auto_cor = str_trim(auto_cor), 
-         dial_date = dmy(dial_date), 
-         tipo_doc = case_when(tipo_doc %in% c("L", "D") ~ "DNI/LE",
-                              TRUE ~ "Otro")) |> 
-  select(tipo_doc, dni, auto_cor, dial_date)
+         dial_date = dmy(dial_date)) |> 
+  select(auto_cor, dial_date)
 
 head(data_dial_sscc2)
 ```
@@ -163,10 +122,6 @@ data_dial_cnsr |>
   get_dupes(auto_cor)
 ```
 
-```{r}
-glimpse(data_dial_cnsr)
-```
-
 #### Datos basados en SGH:
 
 Vamos a usar como proxy los CIE-10 para detectar el acceso a hemodialisis: 
@@ -182,16 +137,7 @@ En base a la tabla de líneas arriba, vamos a detectar los siguientes CIE-10 com
 - Z94.0 (Kidney transplant status)
 
 ```{r}
-data_dial_sgh_emg <- import(here("Data", "Raw", "07092023_bd_dial_sgh_emerg.csv"))
-```
-
-```{r}
-glimpse(data_dial_sgh_emg)
-```
-
-
-```{r}
-data_dial_sgh_emg <- data_dial_sgh_emg |> 
+data_dial_sgh_emg <- import(here("Data", "Raw", "07092023_bd_dial_sgh_emerg.csv")) |> 
   mutate(ESCDIAG = str_trim(ESCDIAG), 
          ESDIAG2 = str_trim(ESDIAG2)) |> 
   select(ESAUTASE, ESFECHA, ESCDIAG, ESDIAG2) |> 
@@ -301,11 +247,6 @@ data_dial_sgh |>
   head(10)
 ```
 
-```{r}
-glimpse(data_dial_sgh)
-```
-
-
 #### Fusion de datos CNSR + SGH
 
 ```{r}
@@ -314,10 +255,6 @@ data_dial <- data_dial_sgh |>
 
 head(data_dial, 10)
 dim(data_dial)
-```
-
-```{r}
-glimpse(data_dial)
 ```
 
 Por cada individuo (autogenerado), vamos ahora a ordenar de menor fecha a mayor fecha y quedarnos solo con el de menor fecha (primera fila) eliminado los demás duplicados de auto_cor:
@@ -330,26 +267,12 @@ data_dial2 <- data_dial |>
 head(data_dial2)
 ```
 
-```{r}
-glimpse(data_dial2)
-```
-
-
 ### Datos de fallecimiento
-
-#### Fuente Oficina de Seguros
 
 ```{r}
 data_fallec <- import(here("Data", "Raw", "02082023_bd_fallec.csv")) |> 
   clean_names()
-```
 
-```{r}
-glimpse(data_fallec)
-```
-
-
-```{r}
 data_fallec |> 
   head(10)
 ```
@@ -368,38 +291,6 @@ data_fallec |>
   head(10)
 ```
 
-```{r}
-glimpse(data_fallec)
-```
-
-#### Fuente SINADEF
-
-```{r}
-data_fallec_sinadef <- import(here("Data", "Raw", "sinadef2017_2023.csv")) |> 
-  clean_names()
-```
-
-```{r}
-glimpse(data_fallec_sinadef)
-```
-
-```{r}
-data_fallec_sinadef  <- data_fallec_sinadef  |> 
-  select(tipo_doc, documento, fallecido, fech_fallecimiento) |> 
-  mutate(fuente = "data_fallec_sinadef") |> 
-  filter(tipo_doc == "DNI/LE")
-
-head(data_fallec_sinadef, 10)
-```
-
-```{r}
-data_fallec_sinadef |> 
-  count(tipo_doc)
-```
-
-```{r}
-glimpse(data_fallec_sinadef)
-```
 
 ### Datos del hospital rebagliati
 
@@ -407,24 +298,13 @@ glimpse(data_fallec_sinadef)
 
 ```{r}
 data_pred_reba <- import(here("Data", "Raw", "bd_predictores_reba_lima.csv")) |> 
-  clean_names() |> 
-  mutate(cas_fuente = "JB")
+  clean_names() 
 ```
 
-```{r}
-glimpse(data_pred_reba)
-```
 
 ```{r}
 data_pred_reba |> 
   head(10)
-```
-
-Notar que los datos del Rebagliati no contienen la vigilancia que hace el Hospital Kaelin, que pertenece a la Red Rebagliati, debido a que es una Asociacion Publico Privada con su propio manejo de Salud Renal.
-
-```{r}
-data_pred_reba |> 
-  count(cas)
 ```
 
 ```{r}
@@ -446,7 +326,7 @@ data_pred_reba2 <- data_pred_reba |>
          dm = as.numeric(dm), 
          assess_date = dmy(assess_date),
          auto_cor = str_trim(auto_cor), 
-         cas = "REBAGLIATI - JB", 
+         cas = "REBAGLIATI", 
          eGFR_ckdepi = case_when(
            crea <= 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-0.329)) * (0.993 ^ (age)) * 1, 
            crea > 0.7 & sex == "Femenino" ~ 144 * ((crea / 0.7) ^ (-1.209)) * (0.993 ^ (age)) * 1, 
@@ -455,10 +335,6 @@ data_pred_reba2 <- data_pred_reba |>
            TRUE ~ as.numeric(NA)
          )) |> 
   select(auto_cor, sex, age, hta, dm, cas, cas_hosp, assess_date, crea, eGFR_ckdepi, urine_album, urine_crea, acr)
-```
-
-```{r}
-glimpse(data_pred_reba2)
 ```
 
 #### Inspeccionar datos perdidos
@@ -472,209 +348,23 @@ gg_miss_upset(data_pred_reba2)
 ```
 
 ```{r}
-gg_miss_upset(data_pred_reba2 |> 
-                select(eGFR_ckdepi, acr))
+gg_miss_upset(data_pred_reba2 |> select(eGFR_ckdepi, acr))
+```
+
+```{r}
+data_pred_reba3 <- data_pred_reba2 |> 
+  drop_na(eGFR_ckdepi, acr)
 ```
 
 #### Fusionar datos de dialisis y mortalidad con datos de Rebagliati
 
-##### Recuperar datos de DNI
-
-```{r}
-data_fallec_dni <- data_fallec |> 
-  mutate(dni = case_when(dni %in% c("", "----") ~ as.character(NA), 
-                         TRUE ~ dni)) |> 
-  select(-death_date, -fuente) |> 
-  arrange(dni)
-```
-
-```{r}
-data_dial2 |> 
-  glimpse()
-```
-
-
-```{r}
-data_dial2_dni <- data_dial2 |> 
-  mutate(dni = case_when(dni %in% c("", "----") ~ as.character(NA), 
-                         TRUE ~ dni)) |> 
-  select(-dial_date, -diag_cie) |> 
-  arrange(dni)
-
-data_dial2 |> 
-  arrange(dni)
-```
-
-```{r}
-data_fallec_sinadef |> 
-  glimpse()
-```
-
-```{r}
-data_fallec_sinadef |> 
-  arrange(documento)
-```
-
-
 ```{r}
 data_pred_reba3 <- data_pred_reba2 |> 
-  left_join(data_fallec_dni, 
-            by = "auto_cor") |>   
-  left_join(data_dial2_dni |> select(-dial), 
-            by = "auto_cor")   
+  left_join(data_fallec, by = "auto_cor") |> 
+  left_join(data_dial2, by = "auto_cor")
 
-glimpse(data_pred_reba3)
+head(data_pred_reba3, 10)
 ```
-
-```{r}
-data_pred_reba3 <- data_pred_reba3 |> 
-  mutate(dif_dni = case_when(dni.y == dni.x ~ "iguales", 
-                             dni.y != dni.x ~ "diferentes"))
-
-data_pred_reba3 |> 
-  count(dif_dni)
-```
-
-En el caso de los DNI diferentes, vemos que podemos recsatar los valores
-
-```{r}
-data_pred_reba3 |> 
-  filter(dif_dni == "diferentes") 
-```
-
-```{r}
-data_pred_reba3 |> 
-  filter(dif_dni == "iguales") 
-```
-
-En este caso, una de las dos filas tiene dni o ninguna ,asi que es posible recuperar los datos de dni para reutilizarlos luego:
-
-
-```{r}
-data_pred_reba3 |> 
-  filter(is.na(dif_dni)) |> 
-  arrange(dni.y) 
-```
-
-```{r}
-data_pred_reba3 <- data_pred_reba3 |> 
-  mutate(dni = case_when(dif_dni == "diferentes" & dni.x == "----" ~ dni.y, 
-                         dif_dni == "diferentes" & dni.x != "----" ~ dni.x, 
-                         dif_dni == "iguales" ~ dni.x, 
-                         is.na(dif_dni) & !is.na(dni.x) ~ dni.x, 
-                         is.na(dif_dni) & !is.na(dni.y) ~ dni.y, 
-                         TRUE ~ dni.x))
-```
-
-
-```{r}
-data_pred_reba3 |> 
-  arrange(dni.x)
-```
-```{r}
-data_pred_reba3 <- data_pred_reba3 |> 
-  select(-dni.y, -dif_dni, -dni.x)
-```
-
-```{r}
-data_pred_reba3
-```
-
-            
-##### Fusionar primero muerte
-
-
-```{r}
-data_pred_reba3 <- data_pred_reba3 |> 
-  left_join(data_fallec |> select(-dni), 
-            by = "auto_cor") |>   
-  left_join(data_fallec |> select(-auto_cor), 
-            by = "dni") |>   
-  left_join(data_fallec_sinadef, 
-            by = c("dni" = "documento"))
-
-data_pred_reba3 |> 
-  glimpse()
-```
-
-```{r}
-data_pred_reba3b <- data_pred_reba3 |> 
-  mutate(fech_fallecimiento = as.Date(fech_fallecimiento), 
-         date_death_igual1 = (death_date.x == death_date.y ), 
-         date_death_igual2 = (fech_fallecimiento == death_date.y))
-
- data_pred_reba3b |> 
-   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
-          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
-   arrange(date_death_igual1) |> 
-   filter(date_death_igual1 == TRUE)
-```
-```{r}
- data_pred_reba3b |> 
-   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
-          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
-   arrange(date_death_igual1) |> 
-   filter(date_death_igual1 == FALSE)
-```
-
-```{r}
- data_pred_reba3b |> 
-   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
-          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
-   arrange(date_death_igual1) |> 
-   filter(is.na(date_death_igual1))
-```
-Respecto a death_date.x y death_date.y, ambos dan lo mismo, nos quedaremos con death_date.x
-
-```{r}
- data_pred_reba3b |> 
-   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
-          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
-   arrange(date_death_igual2) |> 
-   filter(date_death_igual2 == TRUE)
-```
-
-```{r}
- data_pred_reba3b |> 
-   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
-          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
-   arrange(date_death_igual2) |> 
-   filter(date_death_igual2 == FALSE)
-```
-
-```{r}
- data_pred_reba3b |> 
-   select(auto_cor, sex, age, death_date.x, death_date.y, death_date.y, 
-          fech_fallecimiento, date_death_igual1, date_death_igual2) |> 
-   arrange(date_death_igual2) |> 
-   filter(is.na(date_death_igual2)) |> 
-  arrange(fech_fallecimiento)
-```
-
-Por tanto vamos a editar la variable death_date. nos quedamos con death_date.x porque es igual que death_date.y. Luego, cuando sean diferentes, nos quedamos con fech_fallecimiento y si hay algun missing en uno, pero no en el otro, los intercambiamos.
-
-
-```{r}
-data_pred_reba3 <- data_pred_reba3b  |> 
-  mutate(death_date = case_when(date_death_igual2 == FALSE ~ fech_fallecimiento, 
-                                is.na(date_death_igual2) & 
-                                  !is.na(death_date.x) ~ death_date.x, 
-                                is.na(date_death_igual2) & 
-                                  !is.na(fech_fallecimiento) ~ fech_fallecimiento, 
-                                TRUE ~ as.Date(NA))
-         ) |> 
-  select(-death_date.x, -death_date.y, -date_death_igual1, 
-         -date_death_igual2, -fech_fallecimiento)
-```
-
-Ahora que se cuenta con los datos corregidos, verificamos:
-
-```{r}
-data_pred_reba3 |> 
-  count(death_date, .drop = FALSE) |> 
-  arrange(death_date)
-```
-
 
 ```{r}
 data_pred_reba3 <- data_pred_reba3  |> 
@@ -934,6 +624,17 @@ data_pred_kaelin2 <- data_pred_kaelin |>
 #### Fusionar datos de muerte de sinadef
 
 ```{r}
+data_fallec_sinadef <- import(here("Data", "Raw", "sinadef2017_2023.csv")) |> 
+  clean_names() |> 
+  select(tipo_doc, documento, fallecido, fech_fallecimiento) |> 
+  mutate(fuente = "data_fallec_sinadef") |> 
+  filter(tipo_doc == "DNI/LE")
+
+head(data_fallec_sinadef, 10)
+```
+
+
+```{r}
 data_pred_kaelin3 <- data_pred_kaelin2 |> 
   left_join(data_fallec_sinadef, by = c("dni" = "documento"))
 ```
@@ -948,27 +649,14 @@ data_pred_kaelin3 |>
   count(fallecido)
 ```
 
-```{r}
-data_pred_kaelin3b <- data_pred_kaelin2 |> 
-  left_join(data_fallec, by = "dni")
-```
-
-```{r}
-data_pred_kaelin3b |> 
-  count(fuente)
-```
-
-```{r}
-data_pred_kaelin3b |> 
-  mutate(fallecido = if_else(!is.na(death_date), "si", "no")) |> 
-  count(fallecido)
-```
 
 #### Inspeccionar datos perdidos
+
 
 ```{r}
 gg_miss_upset(data_pred_kaelin3)
 ```
+
 
 #### Fusionar datos de dialisis y mortalidad con datos de Rebagliati
 
@@ -1194,6 +882,18 @@ data_pred_nac <- import(here("Data",
 head(data_pred_nac, 10)
 ```
 
+```{r}
+data_pred_nac |> 
+  count(auto_cor) |> 
+  arrange(auto_cor)
+```
+
+```{r}
+data_pred_nac |> 
+  count(dni) |> 
+  arrange(dni)
+```
+
 #### Fusionar con datos de dialisis
 
 Lo primero será fusion los datos con hemodialisis:
@@ -1227,11 +927,11 @@ data_pred_nac |>
 
 #### Deidentificacion
 
-Nos quedamos solo con el autogenerado (`auto_cor`) y eliminamos los apellido y el dni:
+Nos quedamos solo con el autogenerado (`auto_cor`) y dni y eliminamos los apellidos:
 
 ```{r}
 data_pred_nac <- data_pred_nac |> 
-  select(-dni, -apellid)
+  select(-apellid)
 
 head(data_pred_nac, 10)
 ```
@@ -1326,11 +1026,6 @@ Vamos a conservar todos los valores de creatinina y la guardaremso en una nueva 
 data_pred_nac <- data_pred_nac |> 
   rename(crea = creatinina_cor)
 ```
-
-
-#
-
-
 
 ##### Creatininuria
 
@@ -1685,7 +1380,8 @@ data_pred_nac <- data_pred_nac |>
     ))
 
 data_pred_nac |> 
-  count(acr)
+  count(acr) |> 
+  head()
 ```
 
 ```{r}
@@ -1918,7 +1614,7 @@ data_pred_nac |>
   tabyl(dm, hta_dm)
 ```
 
-#### Tasa de filtración glomerural
+##### Tasa de filtración glomerural
 
 Aunque tenemos una variable de tasa de filtracion glomerual estiamda, se aprecia que esta proviene de diversos métodos de cálculos, por lo que no podemos considerarla para el análisis.
 
@@ -1929,7 +1625,8 @@ data_pred_nac |>
 
 ```{r}
 data_pred_nac |> 
-  count(tfg_cor)
+  count(tfg_cor) |> 
+  head()
 ```
 
 ```{r}
@@ -1979,13 +1676,14 @@ Vemos que la variable fallece tiene las columnas de fechas de fallecimiento tota
 ```{r}
 data_pred_nac |> 
   count(fallece) |> 
-  head()
+  count()
 ```
 
 ```{r}
 data_pred_nac <- data_pred_nac |> 
   mutate(death_date = dmy(fallece))
 ```
+
 Primero procederemos a crear la variable death:
 
 ```{r}
@@ -1995,20 +1693,72 @@ data_pred_nac <- data_pred_nac |>
                            TRUE ~ 0))
 ```
 
+
+Luego fusionaremos con la base de datos de muerte segun SINADEF:
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  left_join(data_fallec_sinadef |> select(-tipo_doc, -fuente), by = c("dni" = "documento")) 
+```
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(fech_fallecimiento = as.Date(fech_fallecimiento),
+         dif = as.numeric(fech_fallecimiento -  death_date))
+```
+
+```{r}
+data_pred_nac |> 
+  count(dif)
+```
+
+```{r}
+data_pred_nac |> 
+  filter(dif != 0) |> 
+  select(f_ingreso, death_date, fech_fallecimiento, dif) |> 
+  arrange(dif) |> 
+  head()
+```
+
+```{r}
+data_pred_nac |> 
+  filter(is.na(dif)) |> 
+  select(f_ingreso, death_date, fech_fallecimiento, dif) |> 
+  arrange(fech_fallecimiento) |> 
+  head()
+```
+
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(death_date = case_when(dif == 0 ~ death_date, 
+                                 dif != 0 & !is.na(dif) ~ fech_fallecimiento, 
+                                 is.na(dif) &  !is.na(death_date) ~ death_date, 
+                                 is.na(dif) & !is.na(fech_fallecimiento) ~ fech_fallecimiento, 
+                                 TRUE ~ as.Date(NA)))
+```
+
 Luego procederemos a censurar las fechas que no son de muerte para el 02 de agosto de 2023.
 
 ```{r}
 data_pred_nac <- data_pred_nac |> 
-  mutate(death_date = case_when(is.na(death_date ) ~ dmy("02-08-2023"), 
-                                TRUE ~ death_date))
+  mutate(death = case_when(!is.na(death_date) ~ 1, 
+                           is.na(death_date) ~ 0, 
+                           TRUE ~ 0))
 ```
 
-
+```{r}
+data_pred_nac <- data_pred_nac |> 
+  mutate(death_date = case_when(!is.na(death_date)~ death_date,
+                                 is.na(death_date) ~ dmy("02-08-2023"), 
+                                 TRUE ~ as.Date(NA)))
+```
 
 ```{r}
 data_pred_nac |> 
   count(death)
 ```
+
+
 Por ultimo, crearemos algunas variables extras relacionadas con la censura del presente estudio:
 
 ```{r}
@@ -2050,7 +1800,7 @@ data_pred_nac <- data_pred_nac |>
 
 ```{r}
 datos <- data_pred_nac |> 
-  select(auto_cor, sex, age, hta, dm, cas, nac_date, assess_date, crea, 
+  select(dni, auto_cor, sex, age, hta, dm, cas, nac_date, assess_date, crea, 
          eGFR_ckdepi, urine_album, urine_crea, acr, death_date, death,  deathc, 
          ddeathc, dial, dial_date, diag_cie)
 ```
@@ -2094,20 +1844,69 @@ gg_miss_upset(datos |>  select(eGFR_ckdepi, acr))
 Luego vamos a proceder a completar las celdas perdidas para cada variable:
 
 ```{r}
-columnas_para_llenar <- c("sex", "age", "hta", "dm", "cas", "nac_date", 
-                          "crea", "eGFR_ckdepi", "urine_album", "urine_crea", 
-                          "acr")
+datos2 <- datos2 |> 
+  arrange(auto_cor, assess_date) |> 
+  group_by(auto_cor) |> 
+  mutate(across(c(assess_date, age, hta, dm, crea, eGFR_ckdepi, urine_album, urine_crea, acr), 
+                ~ lead(.x), .names = "{.col}_lead"), 
+         across(c(assess_date, age, hta, dm, crea, eGFR_ckdepi, urine_album, urine_crea, acr), 
+                ~ lag(.x), .names = "{.col}_lag")) |> 
+  ungroup() 
 
 datos2 <- datos2 |> 
-  arrange(auto_cor)
+  mutate(dif_up = (assess_date  %--% assess_date_lead) / dmonths(1),
+         dif_down = (assess_date_lag %--% assess_date) / dmonths(1))
+
+datos2 |> 
+  count(dif_up)
+
+datos2 |> 
+  count(dif_down)
+
+datos2 <- datos2 |> 
+  mutate(crea = case_when(is.na(crea) &  dif_up <= 6 & dif_down <= 6 ~ crea_lag, 
+                          TRUE ~ crea), 
+         eGFR_ckdepi = case_when(is.na(eGFR_ckdepi) &  dif_up <= 6 & dif_down <= 6 ~ eGFR_ckdepi_lag, 
+                          TRUE ~ eGFR_ckdepi), 
+         urine_album = case_when(is.na(urine_album) &  dif_up <= 6 & dif_down <= 6 ~ urine_album_lag, 
+                          TRUE ~ urine_album), 
+         urine_crea = case_when(is.na(urine_crea) &  dif_up <= 6 & dif_down <= 6 ~ urine_crea_lag, 
+                          TRUE ~ urine_crea), 
+         acr = case_when(is.na(acr) &  dif_up <= 6 & dif_down <= 6 ~ acr_lag, 
+                          TRUE ~ acr), 
+         hta = case_when(is.na(hta) &  dif_up <= 6 & dif_down <= 6 ~ hta_lag, 
+                          TRUE ~ hta), 
+         dm = case_when(is.na(dm) &  dif_up <= 6 & dif_down <= 6 ~ dm_lag, 
+                          TRUE ~ dm))
+
+columnas_para_llenar <- c("sex", "nac_date", "cas")
 
 for (col in columnas_para_llenar) {
   datos2 <- datos2 |> 
-    arrange(auto_cor, !!sym(col)) |> 
-    group_by(auto_cor, !!sym(col)) |> 
+    arrange(auto_cor, assess_date) |> 
+    group_by(auto_cor) |> 
     fill(!!sym(col), .direction = "up") |> 
+    fill(!!sym(col), .direction = "down") |> 
     ungroup()
 }
+```
+
+
+```{r}
+# columnas_para_llenar <- c("sex", "age", "hta", "dm", "cas", "nac_date", 
+#                           "crea", "eGFR_ckdepi", "urine_album", "urine_crea", 
+#                           "acr")
+# 
+# datos2 <- datos2 |> 
+#   arrange(auto_cor)
+# 
+# for (col in columnas_para_llenar) {
+#   datos2 <- datos2 |> 
+#     arrange(auto_cor, !!sym(col)) |> 
+#     group_by(auto_cor, !!sym(col)) |> 
+#     fill(!!sym(col), .direction = "up") |> 
+#     ungroup()
+# }
 ```
 
 
@@ -2119,6 +1918,27 @@ datos2 |>
 
 #### Identificacion y eliminacion de duplicados
 
+##### Creacion de un identificador unico de duplicados
+
+```{r}
+datos2 |> 
+  count(auto_cor) |> 
+  arrange(auto_cor)
+```
+
+
+```{r}
+datos2 <- datos2 |> 
+  mutate(dni2 = case_when(dni == "----" ~ auto_cor, 
+                               TRUE ~ dni))
+```
+
+```{r}
+datos2 |> 
+  count(dni2) |> 
+  arrange(dni2)
+```
+
 ##### Duplicados de fila completa
 
 A continuacion vamos a hacer una primera limpieza identificado duplicados indenticos de linea y eliminandolos. Se identificaron `r data_pred_nac |> get_dupes() |> nrow()` filas con duplicados de toda la fila exactamente iguales:
@@ -2126,7 +1946,8 @@ A continuacion vamos a hacer una primera limpieza identificado duplicados indent
 ```{r}
 datos2 |> 
   arrange(auto_cor, nmissing) |> 
-  get_dupes()
+  get_dupes() |> 
+  head()
 ```
 
 Procederemos a eliminarlos y quedarnos solo con uno:
@@ -2150,7 +1971,8 @@ datos2 |>
 ```{r}
 datos2 |> 
   arrange(auto_cor, nmissing) |> 
-  get_dupes(auto_cor, assess_date)
+  get_dupes(auto_cor, assess_date) |> 
+  head()
 ```
 
 
@@ -2162,7 +1984,8 @@ datos2 <- datos2 |>
 ```{r}
 datos2 |> 
   arrange(auto_cor, assess_date, nmissing) |> 
-  get_dupes(auto_cor, assess_date)
+  get_dupes(auto_cor, assess_date) |> 
+  head()
 ```
 
 Procederemos a eliminarlos y quedarnos solo con la primera fila que ha sido ordenada de tal manera que tenga la menor cantidad de datos perdidos:
@@ -2186,7 +2009,8 @@ Por último, veremos los duplicados de ID unico:
 ```{r}
 datos2 |>
   arrange(auto_cor, assess_date, nmissing) |> 
-  get_dupes(auto_cor)
+  get_dupes(auto_cor) |> 
+  head()
 ```
 
 Procedemos a ordenarlos para que el menor numero de datos perdidos por fila esté en la primera fila:
@@ -2199,7 +2023,8 @@ datos2 <- datos2 |>
 ```{r}
 datos2 |> 
   arrange(auto_cor, assess_date, nmissing) |> 
-  get_dupes(auto_cor)
+  get_dupes(auto_cor) |> 
+  head()
 ```
 
 Procederemos a eliminar las primeras filas:
@@ -2221,7 +2046,18 @@ datos2 |>
   count(cas)
 ```
 
-##### Datos perdidos
+
+##### Duplicados de DNI
+
+```{r}
+datos2 |>
+  arrange(dni2, assess_date, nmissing) |> 
+  get_dupes(dni2) |> 
+  head()
+```
+
+
+#### Datos perdidos
 
 ```{r}
 sum_mis_data_pred_nac <- miss_summary(datos2)
@@ -2408,8 +2244,6 @@ datos3 <- datos2 |>
     ckd_class = "Clasificación de CKD KDIGO") 
 ```
 
-#### Guardar dataset completo
-
 ```{r}
 export(datos3, here("Data", "Tidy", "data_derived_nacional.rds"))
 ```
@@ -2426,61 +2260,157 @@ gg_miss_upset(datos3 |>
 
 ### Fusionar Datos Reba + Datos Nacional
 
+```{r}
+datos3 |> 
+  count(cas)
+```
+
+```{r}
+data_pred_reba4 |> 
+  count(cas)
+```
+
 
 ```{r}
 datos_total <- datos3 |> 
-  # filter(cas != "Rebagliati") |> 
+  # filter(cas != "Rebagliati") |>
   bind_rows(data_pred_reba4) |> 
-  bind_rows(data_pred_kaelin4) |> 
+  bind_rows(data_pred_kaelin4) |>
   # select(-dni, -fuente,   -auto_cor) |> #-tipo_doc -fallecido, -fech_fallecimiento, 
   mutate(id = 1:n()) |> 
   select(id, everything()) |> 
   mutate(cas = case_when(cas == "Almenara" ~ "Lima - Almenara", 
                          cas == "Libertad" ~ "La Libertad", 
-                         cas == "KAELIN" ~ "Lima - Rebagliati",
-                         cas == "REBAGLIATI" ~ "Lima - Rebagliati", 
+                         cas == "REBAGLIATI" ~ "Lima - Rebagliati: JB",
                          cas == "Red Ica" ~ "Ica", 
                          cas == "Sabogal" ~ "Lima - Sabogal",
                          TRUE ~ cas))
 ```
 
-Se aprecia que no hay duplicados reconocidos de DNI, solo se identifican duplicados de datos perdidso de DNI>
+```{r}
+sum(is.na(datos_total$auto_cor))
+```
 
 ```{r}
 datos_total |> 
-  get_dupes(dni) |> 
+  count(auto_cor) |> 
+  arrange(auto_cor)
+```
+
+
+```{r}
+sum(is.na(datos_total$dni))
+```
+
+```{r}
+datos_total |> 
+  count(dni) |> 
   arrange(dni)
 ```
 
 ```{r}
+datos_total <- datos_total |> 
+  mutate(auto_cor2 = case_when(is.na(auto_cor) ~ dni, 
+                          TRUE ~ auto_cor))
+```
+
+```{r}
+sum(is.na(datos_total$auto_cor2))
+```
+```{r}
 datos_total |> 
-  get_dupes(auto_cor) |> 
-  arrange(auto_cor)
-```
-
-```{r}
-distinct(.keep_all = TRUE)
-```
-
-
-```{r}
-datos_total |> count(cas)
-```
-
-
-```{r}
-datos_total |> head()
+  count(auto_cor2) |> 
+  arrange(auto_cor2)
 ```
 
 ```{r}
 datos_total |> 
-  count(cas)
+  get_dupes(auto_cor2) |> 
+  select(dupe_count, auto_cor2, dni, auto_cor, sex, age, hta, dm, cas, assess_date)
 ```
+
+```{r}
+datos_total <- datos_total |> 
+  arrange(auto_cor2, assess_date)
+
+datos_total <- datos_total |> 
+  arrange(auto_cor2, assess_date) |> 
+  group_by(auto_cor2) |> 
+  mutate(across(c(assess_date, age, hta, dm, crea, eGFR_ckdepi, urine_album, urine_crea, acr), 
+                ~ lead(.x), .names = "{.col}_lead"), 
+         across(c(assess_date, age, hta, dm, crea, eGFR_ckdepi, urine_album, urine_crea, acr), 
+                ~ lag(.x), .names = "{.col}_lag")) |> 
+  ungroup() 
+
+datos_total <- datos_total |> 
+  mutate(dif_up = (assess_date  %--% assess_date_lead) / dmonths(1),
+         dif_down = (assess_date_lag %--% assess_date) / dmonths(1))
+
+datos_total |> 
+  count(dif_up)
+
+datos_total |> 
+  count(dif_down)
+
+datos_total <- datos_total |> 
+  mutate(crea = case_when(is.na(crea) &  dif_up <= 6 & dif_down <= 6 ~ crea_lag, 
+                          TRUE ~ crea), 
+         eGFR_ckdepi = case_when(is.na(eGFR_ckdepi) &  dif_up <= 6 & dif_down <= 6 ~ eGFR_ckdepi_lag, 
+                          TRUE ~ eGFR_ckdepi), 
+         urine_album = case_when(is.na(urine_album) &  dif_up <= 6 & dif_down <= 6 ~ urine_album_lag, 
+                          TRUE ~ urine_album), 
+         urine_crea = case_when(is.na(urine_crea) &  dif_up <= 6 & dif_down <= 6 ~ urine_crea_lag, 
+                          TRUE ~ urine_crea), 
+         acr = case_when(is.na(acr) &  dif_up <= 6 & dif_down <= 6 ~ acr_lag, 
+                          TRUE ~ acr), 
+         hta = case_when(is.na(hta) &  dif_up <= 6 & dif_down <= 6 ~ hta_lag, 
+                          TRUE ~ hta), 
+         dm = case_when(is.na(dm) &  dif_up <= 6 & dif_down <= 6 ~ dm_lag, 
+                          TRUE ~ dm))
+
+columnas_para_llenar <- c("sex", "nac_date", "cas")
+
+for (col in columnas_para_llenar) {
+  datos_total <- datos_total |> 
+    arrange(auto_cor2, assess_date) |> 
+    group_by(auto_cor2) |> 
+    fill(!!sym(col), .direction = "up") |> 
+    fill(!!sym(col), .direction = "down") |> 
+    ungroup()
+}
+```
+
+
+```{r}
+datos_total |> 
+  get_dupes(auto_cor2) |> 
+  arrange(auto_cor2, assess_date) |> 
+  select(-auto_cor, -id)
+```
+Eliminamos las variables intermedias que creamos
+
+```{r}
+datos_total <- datos_total |> 
+  select(-ends_with("_lag"), -ends_with("_lead"))
+```
+
+Eliminamos los duplicados
+
+```{r}
+datos_total <- datos_total |> 
+  arrange(auto_cor2, assess_date) |> 
+  distinct(auto_cor2, .keep_all = TRUE) 
+```
+
 
 Recuperamos las etiquetas:
 
 ```{r}
-datos_total <- datos_total |>  
+datos_total <- datos_total |> 
+  mutate(id = 1:n()) |> 
+  select(-dni, -auto_cor, -auto_cor2) |> 
+  mutate(age2 = floor((nac_date %--% assess_date) / dyears(1)), 
+         age = floor(age)) |> 
   set_variable_labels(
     cas = "Centro de atención de salud", 
     sex = "Sexo", 
@@ -2521,10 +2451,18 @@ datos_total <- datos_total |>
     ckd_class = "Clasificación de CKD KDIGO") 
 ```
 
-:::{.callout-note collapse=false appearance='default' icon=true}
-## Importante
-- No se incluyó datos del Kaelin porque el registro de muerte se basa en SINADEF y no en la data de oficina de asegurados
-:::
+```{r}
+datos_total <- datos_total |> 
+  # select(id, age, age2, nac_date, assess_date) |> 
+  mutate(diff = age - age2, 
+         age3 = case_when(diff == 0 ~ age, 
+                         diff != 0 & !is.na(diff) ~ age2,
+                         is.na(diff) & !is.na(age) ~ age,
+                         is.na(diff) & !is.na(age2) ~ age2, 
+                         TRUE ~ as.numeric(NA))) |> 
+  mutate(age = age3) |> 
+  select(-diff, -age3)
+```
 
 
 ## Guardar dataset final integrado

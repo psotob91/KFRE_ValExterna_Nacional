@@ -2,19 +2,19 @@
 title: "2 Codigo Reproducible: Imputación Múltiple - Recalibración de modelo KFRE para predecir falla renal en asegurados de EsSalud"
 author: "Percy Soto Becerra"
 format: 
-  html:
-   theme: cerulean
+  html: 
    toc: true
    number-sections: true
    df-print: paged
    page-layout: full
    embed-resources: true
-   code-fold: true
-execute: 
-  warning: false
-  message: false
 ---
 
+# Code to reproduce results of the manuscript 'Kidney Failure Prediction: Multicenter External Validation of the KFRE Model in Patients with CKD Stages 3-4 in Peru'
+
+## Introduction 
+
+This document presents the code and results of the main analysis shown in the article.
 
 ## Setup
 
@@ -221,7 +221,6 @@ data_noeleg_age_menos18 <- data |>
 
 nrow(data_noeleg_age_menos18)
 ```
-
 El número de individuos con datos perdidos en edad es el siguiente:
 
 ```{r}
@@ -239,7 +238,6 @@ data_noeleg_ckd12 <- data |>
 
 nrow(data_noeleg_ckd12)
 ```
-
 ```{r}
 data_noeleg_ckd5 <- data |> 
   filter(ckd_stage == "Stages 1-2 y 5", eGFR_ckdepi < 15)
@@ -282,7 +280,6 @@ data_eleg_potent <- data |>
 
 nrow(data_eleg_potent)
 ```
-
 El numero individuos incluidos 3a-4:
 
 ```{r}

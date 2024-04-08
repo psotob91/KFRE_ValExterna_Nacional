@@ -341,10 +341,7 @@ subdist_df_imp_fix <- subdist_df_imp |>
   arrange(risk) |> 
   summarise(obs_pool = mean(obs), 
             .by = risk)
-```
 
-
-```{r}
 # 5 knots seems to give somewhat equivalent graph to pseudo method with bw = 0.05
 rcs_vdata <- ns(vdata$cll_pred, df = n_internal_knots + 1)
 
@@ -369,9 +366,7 @@ calib_fgr <- FGR(
 )
 
 obs <- predict(calib_fgr, times = horizon, newdata = vdata)
-```
 
-```{r}
 subdist_df_stack <- vdata |>
   rename(risk = pred) |> 
   mutate(obs_stack = obs, 
@@ -389,10 +384,7 @@ subdist_df_dec <- subdist_df_stack |>
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_stack_3a4_2y.rds"))
 rio::export(subdist_df_dec, here("Data", "Tidy", "subdist_df_dec_3a4_2y.rds"))
-```
 
-
-```{r}
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
@@ -422,7 +414,9 @@ ggplot() +
 #             alpha = 0.1, color = "#38B8F7") -> plot_mod0_imp_2y
 
 gc()
+```
 
+```{r}
 plot_mod0_2y
 ```
 
