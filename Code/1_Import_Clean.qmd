@@ -2281,9 +2281,10 @@ datos_total <- datos3 |>
   select(id, everything()) |> 
   mutate(cas = case_when(cas == "Almenara" ~ "Lima - Almenara", 
                          cas == "Libertad" ~ "La Libertad", 
-                         cas == "REBAGLIATI" ~ "Lima - Rebagliati: JB",
+                         cas == "REBAGLIATI" ~ "Lima - Rebagliati",
                          cas == "Red Ica" ~ "Ica", 
-                         cas == "Sabogal" ~ "Lima - Sabogal",
+                         cas == "Sabogal" ~ "Lima - Sabogal", 
+                         cas == "KAELIN" ~ "Lima - Rebagliati", 
                          TRUE ~ cas))
 ```
 

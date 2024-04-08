@@ -142,7 +142,6 @@ source(here("Code", "source", "process_imp_cal_plot2.R"))
 
 ```{r}
 n_cores <- detectCores()
-n_cores <- 10
 
 # Evaluate futures in parallel - max of two workers to avoid hogging resources
 future::plan("multisession", workers = n_cores)
@@ -162,8 +161,7 @@ imp.datosA <- imp.datosA |>
          risk5y = kfre_pr(imp.datosA, 5), 
          eventdf = factor(eventd)) |> 
   select(.imp, .id, time, eventd, eventdf, risk2y, risk5y) |>  
-  filter(.imp != 0) |> 
-  filter(.imp <= 3)
+  filter(.imp != 0)
 ```
 
 
@@ -335,93 +333,53 @@ subdist_df_imp_obs <- subdist_df_imp |>
   bind_rows() |> 
   filter(type == "observed")
 
+subdist_df_stack <- subdist_df_imp_obs |>
+  group_by(.imp) |> 
+  mutate(deciles_risk = as.integer(quantcut(risk, seq(0, 1, by = 0.1)))) |> 
+  group_by(.imp, deciles_risk) |> 
+  summarise(obs_mean_imp = mean(obs), 
+            risk_mean_imp = mean(risk)) |> 
+  group_by(deciles_risk) |> 
+  summarise(obs_mean_pool = mean(obs_mean_imp), 
+            risk_mean_pool = mean(risk_mean_imp))
+  
 subdist_df_imp_fix <- subdist_df_imp |> 
   bind_rows() |>  
   filter(type == "fixed") |> 
   arrange(risk) |> 
   summarise(obs_pool = mean(obs), 
-            .by = risk)
-
-# 5 knots seems to give somewhat equivalent graph to pseudo method with bw = 0.05
-rcs_vdata <- ns(vdata$cll_pred, df = n_internal_knots + 1)
-
-colnames(rcs_vdata) <- paste0("basisf_", colnames(rcs_vdata))
-# vdata_bis <- cbind.data.frame(vdata_filt, rcs_vdata)
-
-vdata <- vdata |> 
-  bind_cols(as.data.frame(rcs_vdata))
-
-# Use subdistribution hazards (Fine-Gray) model
-form_fgr <- reformulate(
-  termlabels = colnames(rcs_vdata),
-  response = "Hist(time, eventd)")
-
-# Regress subdistribution of event of interest on cloglog of estimated risks
-calib_fgr <- FGR(
-  formula = form_fgr,
-  cause = primary_event,
-  data = vdata, 
-  variance = FALSE, 
-  y = FALSE
-)
-
-obs <- predict(calib_fgr, times = horizon, newdata = vdata)
-
-subdist_df_stack <- vdata |>
-  rename(risk = pred) |> 
-  mutate(obs_stack = obs, 
-         deciles_risk = quantcut(risk, seq(0, 1, by = 0.1))) |> 
-  arrange(risk)
-
-# Crea datos con predicciones agrupadas por deciles
-subdist_df_dec <- subdist_df_stack |>
-  group_by(deciles_risk) |>
-  summarize(
-    risk_dec = mean(risk),
-    obs_dec = mean(obs_stack)) |> 
-  arrange(deciles_risk)
+            .by = risk) |> 
+  mutate(deciles_risk = quantcut(risk, seq(0, 1, by = 0.1)))
 
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y.rds"))
-rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_stack_3a4_2y.rds"))
-rio::export(subdist_df_dec, here("Data", "Tidy", "subdist_df_dec_3a4_2y.rds"))
+rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_2y.rds"))
 
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
-  geom_line(data = subdist_df_stack, 
-            aes(x = risk, y = obs_stack),
-            alpha = 0.5, color = "blue") +
   geom_line(data = subdist_df_imp_fix, 
             aes(x = risk, y = obs_pool),
-            alpha = 0.5, color = "orange") +
-  geom_point(data = subdist_df_dec,
-             aes(x = risk_dec, y = obs_dec),
+            alpha = 0.5, color = "black") +
+  geom_point(data = subdist_df_stack,
+             aes(x = risk_mean_pool, y = obs_mean_pool),
              shape = 23,
              stroke = 0.1,
-             fill = "gold") + 
+             fill = "blue") + 
   scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
   scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
   theme_bw() + 
   labs(x = "Predicted risks", y = "Observed outcome proportions") + 
   # geom_rug(data = subdist_df_stack,
-  #          aes(x = risk, y = obs_stack),
+  #          aes(x = risk_mean_pool, y = obs_mean_pool),
   #          alpha = 0.1) +
   coord_fixed(ratio = 1, expand = TRUE)  -> plot_mod0_2y
 
 # Grafico de calibracion con curvas imputadas
-# plot_mod0_2y + 
-#   geom_line(data = subdist_df_imp, aes(x = risk, y = obs, group = .imp),
-#             alpha = 0.1, color = "#38B8F7") -> plot_mod0_imp_2y
+plot_mod0_2y + 
+  geom_line(data = subdist_df_imp_obs, 
+            aes(x = risk, y = obs, group = .imp),
+            alpha = 0.1, color = "#38B8F7") -> plot_mod0_imp_2y
 
-gc()
-```
-
-```{r}
-plot_mod0_2y
-```
-
-
-```{r}
 # A 5 años----
 horizon <- 5
 
@@ -430,93 +388,87 @@ vdata <- imp.datosA %>%
   select(.imp, .id, time, eventd, pred) |> 
   mutate(cll_pred = log(-log(1 - pred))) 
 
-future::plan("multisession", workers = n_cores)
+rcs_vdata <- ns(vdata$cll_pred, df = n_internal_knots + 1)
+colnames(rcs_vdata) <- paste0("basisf_", colnames(rcs_vdata))
+knots <- attr(rcs_vdata, "knots")
+bound.knots <-  attr(rcs_vdata, "Boundary.knots")
 
+pp <- seq(min(vdata$pred), max(vdata$pred), length.out = 1000)
+cll_pp <- log(-log(1 - pp))
+rcs_cll_pp <- ns(cll_pp, knots = knots, Boundary.knots = bound.knots)
+colnames(rcs_cll_pp) <- paste0("basisf_", colnames(rcs_cll_pp))
+
+vdata_bis_pp <- cbind(pp, as.data.frame(rcs_cll_pp))
+
+future::plan("multisession", workers = n_cores)
 subdist_df_imp <- future_map(1:max(vdata$.imp),
                          process_imp_cal_plot, 
                          vdata = vdata, 
                          primary_event = primary_event, 
                          horizon = horizon, 
                          type = "subdist_hazard", 
-                         n_internal_knots = n_internal_knots,
+                         n_internal_knots = n_internal_knots, 
+                         vdata_bis_pp, 
                          .options = furrr_options(seed = seed, 
                                                   packages = c("riskRegression", 
                                                                "survival", 
                                                                "splines", 
                                                                "cmprsk",
                                                                "tidyverse")), 
-                         .progress = TRUE) 
-
-subdist_df_imp <- subdist_df_imp |> 
-  bind_rows() |>  
-  arrange(risk)
+                         .progress = TRUE)
 
 # 5 knots seems to give somewhat equivalent graph to pseudo method with bw = 0.05
-rcs_vdata <- ns(vdata$cll_pred, df = n_internal_knots + 1)
+subdist_df_imp_obs <- subdist_df_imp |> 
+  bind_rows() |> 
+  filter(type == "observed")
 
-colnames(rcs_vdata) <- paste0("basisf_", colnames(rcs_vdata))
-# vdata_bis <- cbind.data.frame(vdata_filt, rcs_vdata)
+subdist_df_stack <- subdist_df_imp_obs |>
+  group_by(.imp) |> 
+  mutate(deciles_risk = as.integer(quantcut(risk, seq(0, 1, by = 0.1)))) |> 
+  group_by(.imp, deciles_risk) |> 
+  summarise(obs_mean_imp = mean(obs), 
+            risk_mean_imp = mean(risk)) |> 
+  group_by(deciles_risk) |> 
+  summarise(obs_mean_pool = mean(obs_mean_imp), 
+            risk_mean_pool = mean(risk_mean_imp))
+  
+subdist_df_imp_fix <- subdist_df_imp |> 
+  bind_rows() |>  
+  filter(type == "fixed") |> 
+  arrange(risk) |> 
+  summarise(obs_pool = mean(obs), 
+            .by = risk) |> 
+  mutate(deciles_risk = quantcut(risk, seq(0, 1, by = 0.1)))
 
-vdata <- vdata |> 
-  bind_cols(as.data.frame(rcs_vdata))
-
-# Use subdistribution hazards (Fine-Gray) model
-form_fgr <- reformulate(
-  termlabels = colnames(rcs_vdata),
-  response = "Hist(time, eventd)")
-
-# Regress subdistribution of event of interest on cloglog of estimated risks
-calib_fgr <- FGR(
-  formula = form_fgr,
-  cause = primary_event,
-  data = vdata, 
-  variance = FALSE, 
-  y = FALSE
-)
-
-obs <- predict(calib_fgr, times = horizon, newdata = vdata)
-
-subdist_df_stack <- vdata |>
-  rename(risk = pred) |> 
-  mutate(obs_stack = obs, 
-         deciles_risk = quantcut(risk, seq(0, 1, by = 0.1))) |> 
-  arrange(risk)
-
-# Crea datos con predicciones agrupadas por deciles
-subdist_df_dec <- subdist_df_stack |>
-  group_by(deciles_risk) |>
-  summarize(
-    risk_dec = mean(risk),
-    obs_dec = mean(obs_stack)) |> 
-  arrange(deciles_risk)
-
-rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y.rds"))
-rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_stack_3a4_2y.rds"))
-rio::export(subdist_df_dec, here("Data", "Tidy", "subdist_df_dec_3a4_2y.rds"))
+rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_5y.rds"))
+rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_5y.rds"))
 
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
-  geom_line(data = subdist_df_stack, aes(x = risk, y = obs_stack),
-            alpha = 1, color = "blue") +
-  geom_point(data = subdist_df_dec,
-             aes(x = risk_dec, y = obs_dec),
+  geom_line(data = subdist_df_imp_fix, 
+            aes(x = risk, y = obs_pool),
+            alpha = 0.5, color = "black") +
+  geom_point(data = subdist_df_stack,
+             aes(x = risk_mean_pool, y = obs_mean_pool),
              shape = 23,
              stroke = 0.1,
-             fill = "gold") + 
+             fill = "blue", 
+             alpha = 0.5) + 
   scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
   scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
   theme_bw() + 
   labs(x = "Predicted risks", y = "Observed outcome proportions") + 
   # geom_rug(data = subdist_df_stack,
-  #          aes(x = risk, y = obs_stack),
+  #          aes(x = risk_mean_pool, y = obs_mean_pool),
   #          alpha = 0.1) +
   coord_fixed(ratio = 1, expand = TRUE)  -> plot_mod0_5y
 
 # Grafico de calibracion con curvas imputadas
 plot_mod0_5y + 
-  geom_line(data = subdist_df_imp, aes(x = risk, y = obs, group = .imp),
-            alpha = 0.1, color = "#38B8F7") -> plot_mod0_imp_5y
+  geom_line(data = subdist_df_imp_obs, 
+            aes(x = risk, y = obs, group = .imp),
+            alpha = 0.3, color = "#38B8F7") -> plot_mod0_imp_5y
 
 ## Grafico final
 plot_mod0_2y <- plot_mod0_2y + 
@@ -527,15 +479,16 @@ plot_mod0_5y <- plot_mod0_5y +
   labs(title = "Modelo Original\n(5 year KFRE)") + 
   theme(plot.title = element_text(hjust = 0.5))
 
-plot_mod0_imp_2y <- plot_mod0_imp_2y + 
-  labs(title = "Modelo Original\n(2 year KFRE)") + 
+plot_mod0_imp_2y <- plot_mod0_imp_2y +
+  labs(title = "Modelo Original\n(2 year KFRE)") +
   theme(plot.title = element_text(hjust = 0.5))
 
-plot_mod0_imp_5y <- plot_mod0_imp_5y + 
-  labs(title = "Modelo Original\n(5 year KFRE)") + 
+plot_mod0_imp_5y <- plot_mod0_imp_5y +
+  labs(title = "Modelo Original\n(5 year KFRE)") +
   theme(plot.title = element_text(hjust = 0.5))
 
 plot_cal_mod0 <- plot_mod0_2y / plot_mod0_5y
+plot_cal_imp_mod0 <- plot_mod0_imp_2y / plot_mod0_imp_5y
 
 export(plot_mod0_2y, here("Data", "Tidy", "plot_mod0_2y.rds"))
 export(plot_mod0_5y, here("Data", "Tidy", "plot_mod0_5y.rds"))
@@ -543,10 +496,22 @@ export(plot_cal_mod0, here("Data", "Tidy", "plot_cal_mod0.rds"))
 
 export(plot_mod0_imp_2y, here("Data", "Tidy", "plot_mod0_imp_2y.rds"))
 export(plot_mod0_imp_5y, here("Data", "Tidy", "plot_mod0_imp_5y.rds"))
+export(plot_cal_imp_mod0, here("Data", "Tidy", "plot_cal_imp_mod0.rds"))
+
 
 ggsave(filename = "Plot_Calibration_imputed.png", 
        device = "png", 
        plot = plot_cal_mod0, 
+       path = here("Figures"), 
+       scale = 2, 
+       width = 12, 
+       height = 12,
+       units = "cm", 
+       dpi = 600)
+
+ggsave(filename = "Plot_Calibration_imputed_estabilidad.png", 
+       device = "png", 
+       plot = plot_cal_imp_mod0, 
        path = here("Figures"), 
        scale = 2, 
        width = 12, 
@@ -561,6 +526,13 @@ gc()
 #| fig.align: center
 #| fig-cap: "Calibration curves for each group and prediction horizon"
 knitr::include_graphics(here("Figures", "Plot_Calibration_imputed.png"))
+```
+
+
+```{r}
+#| fig.align: center
+#| fig-cap: "Calibration curves for each group and prediction horizon"
+knitr::include_graphics(here("Figures", "Plot_Calibration_imputed_estabilidad.png"))
 ```
 
 ## Ticket de Reprocubilidad

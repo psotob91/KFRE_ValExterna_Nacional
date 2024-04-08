@@ -1380,7 +1380,7 @@ imp.datosA |>
     missing_text = "Missing", 
     percent = "row"
   ) |> 
-  bold_labels()c v -> tab1a_miss
+  bold_labels() -> tab1a_miss
 
 imp.datosB |> 
   filter(.imp == 0) |> 

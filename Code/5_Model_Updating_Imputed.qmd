@@ -140,7 +140,8 @@ dataA <- dataA |>
            eventd5y %in% c(0, 2) ~ 0, 
            eventd5y %in% c(1)  ~ 1, 
            TRUE ~ as.numeric(NA)
-         )) 
+         ))  |> 
+  filter(.imp != 0) 
 
 # dataA.imp <- as.mids(dataA)
 # dataA.imp$loggedEvents
@@ -160,7 +161,7 @@ p2y <- recal.risk.basal(dataA, 2)
 p2y
 ```
 
-El nuevo factor para recalcular el riesgo  basal (recalibrado) a 5 anios es el siguiente `r p5y$fc.aj.risk.basal`. A 2 anios es el siguiente  `r p2y$fc.aj.risk.basal`.
+El nuevo factor para recalcular el riesgo  basal (recalibrado) a 5 anios es el siguiente `r p5y$st0_imp`. A 2 anios es el siguiente  `r p2y$st0_imp`.
 
 Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado solo con la actualización del riesgo basal:
 
@@ -183,13 +184,14 @@ p5y_2 <- recal.risk.coef(dataA, 5)
 p5y_2
 ```
 
-Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es `r p5y_2$fc.aj.coef` y la supervivencia basal ajustada es `r p5y_2$fc.aj.risk.basal`.
+Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es `r p5y_2$fc_coef_imp` y la supervivencia basal ajustada es `r p5y_2$st0_imp`.
 
 ```{r}
 p2y_2 <- recal.risk.coef(dataA, 2)
 p2y_2
 ```
-Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es `r p2y_2$fc.aj.coef` y la supervivencia basal ajustada es `r p2y_2$fc.aj.risk.basal`.
+
+Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es `r p2y_2$fc_coef_imp` y la supervivencia basal ajustada es `r p2y_2$st0_imp`.
 
 Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado  con la actualización del riesgo basal y de coeficiente:
 
@@ -215,7 +217,7 @@ p2y_csh <- recal.risk.basal.csh(dataA, 2)
 p2y_csh
 ```
 
-El nuevo factor para recalcular el riesgo  basal (recalibrado) a 5 anios es el siguiente `r p5y_csh$fc.aj.risk.basal.csh`. A 2 anios es el siguiente  `r p2y_csh$fc.aj.risk.basal.csh`.
+El nuevo factor para recalcular el riesgo  basal (recalibrado) a 5 anios es el siguiente `r p5y_csh$st0_imp`. A 2 anios es el siguiente  `r p2y_csh$st0_imp`.
 
 Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado solo con la actualización del riesgo basal:
 
@@ -238,14 +240,14 @@ p5y_2.csh <- recal.risk.coef.csh(dataA, 5)
 p5y_2.csh
 ```
 
-Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es `r p5y_2.csh$fc.aj.coef.csh` y la supervivencia basal ajustada es `r p5y_2.csh$fc.aj.risk.basal.csh`.
+Bajo este enfoque, el factor de ajuste de coeficientes a 5 anios es `r p5y_2.csh$fc_coef_imp` y la supervivencia basal ajustada es `r p5y_2.csh$st0_imp`.
 
 ```{r}
 p2y_2.csh <- recal.risk.coef.csh(dataA, 2)
 p2y_2.csh
 ```
 
-Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es `r p2y_2.csh$fc.aj.coef.csh` y la supervivencia basal ajustada es `r p2y_2.csh$fc.aj.risk.basal.csh`.
+Bajo este enfoque, el factor de ajuste de coeficientes a 2 anios es `r p2y_2.csh$fc_coef_imp` y la supervivencia basal ajustada es `r p2y_2.csh$st0_imp`.
 
 Con esto, vamos a reestimar las probabilidades predichas por el modelo recalibrado con la actualización del riesgo basal y los coeficientes:
 

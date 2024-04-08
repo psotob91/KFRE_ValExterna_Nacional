@@ -1,0 +1,754 @@
+---
+title: "3 Codigo Reproducible: Analisis Descriptivo - Recalibración de modelo KFRE para predecir falla renal en asegurados de EsSalud"
+author: "Percy Soto Becerra"
+format: 
+  html:
+   theme: cerulean
+   toc: true
+   number-sections: true
+   df-print: paged
+   page-layout: full
+   embed-resources: true
+   code-fold: true
+execute: 
+  warning: false
+  message: false
+---
+
+## Introduction 
+
+This document presents the code and results of the main analysis shown in the article.
+
+## Setup
+
+```{r}
+#| label: load-packages
+#| include: true
+
+rm(list = ls())
+
+# Use pacman to check whether packages are installed, if not load
+if (!require("pacman")) install.packages("pacman")
+library(pacman)
+
+# Unload all package to begin in a session with only base packages
+pacman::p_unload(all)
+
+# Install packages
+pacman::p_load(
+  here, 
+  skimr, 
+  survival,
+  survminer, 
+  rms,
+  cmprsk,
+  riskRegression,
+  mstate,
+  pseudo,
+  pec,
+  plotrix,
+  knitr,
+  splines,
+  kableExtra,
+  flextable,
+  gtsummary,
+  boot,
+  tidyverse,
+  rsample,
+  gridExtra,
+  webshot, 
+  patchwork,
+  survival, 
+  ggsci, 
+  cowplot, 
+  scales, 
+  patchwork, 
+  labelled, 
+  glue, 
+  dcurves, 
+  broom, 
+  downlit, 
+  xml2, 
+  gghalves, 
+  devtools, 
+  htmltools, 
+  gghalves, 
+  ggtext, 
+  DiagrammeR, 
+  gt, 
+  janitor, 
+  VIM, 
+  PerformanceAnalytics, 
+  mice, 
+  rms, 
+  naniar, 
+  DescTools, 
+  gtools, 
+  ggExtra, 
+  furrr, 
+  future, 
+  ggmice,
+  parallel,
+  tictoc, 
+  rio, 
+  tidycmprsk, 
+  ggsurvfit
+)
+
+if (!require("impstep")) remotes::install_github("bgravesteijn/impstep", force = TRUE)
+if (!require("smplot2")) devtools::install_github('smin95/smplot2', force = TRUE)
+# You will need Rtools to install packages from Github on Windows
+# `devtools` with throw an informative error if Rtools is not found
+# if (!"devtools" %in% installed.packages()) install.packages("devtools")
+# if (!require("smplot2")) devtools::install_github("jesse-smith/futuremice")
+
+library(impstep)
+
+## Revisar:; https://amices.org/ggmice/index.html
+```
+
+## Cargar datos
+
+```{r}
+# Import data
+data_impA <- readRDS(here::here("Data", "Tidy", "data_impA.rds")) 
+imp.datosA <- complete(data_impA, action = "long", include = TRUE)
+
+# Create data for CKD 3b-4 (subset of CKD3a-4)
+imp.datosA <- imp.datosA |> 
+  mutate(grf_cat = droplevels(grf_cat))
+```
+
+## Pre-procesar datos
+
+```{r}
+imp.datosA <- imp.datosA |> 
+  mutate(
+    acr = exp(log_acr), 
+    urine_crea = exp(log_urine_crea), 
+    urine_album = exp(log_urine_album), 
+    peso = 1 / max(imp.datosA$.imp), 
+    acr_cat = case_when(acr < 30 ~ "A1", 
+                        acr <= 300 & acr >= 30 ~ "A2", 
+                        acr > 300 ~ "A3", 
+                        TRUE ~ as.character(NA)),
+    ckd_class = case_when(
+      grf_cat %in% c("G1", "G2") & acr_cat == "A1" ~ "Low risk", 
+      (grf_cat %in% c("G3a") & acr_cat == "A1") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A2") ~ "Moderately increased risk", 
+      (grf_cat %in% c("G3b") & acr_cat == "A1") | 
+        (grf_cat == "G3a" & acr_cat == "A2") | 
+        (grf_cat %in% c("G1", "G2") & acr_cat == "A3") ~ "High risk", 
+      (grf_cat %in% c("G4", "G5") & acr_cat == "A1") | 
+        (grf_cat %in% c("G3b", "G4", "G5") & acr_cat == "A2") | 
+        (grf_cat %in% c("G3a", "G3b", "G4", "G5") & acr_cat == "A3") ~ "Very high risk"
+    ), 
+    ckd_class = factor(ckd_class, 
+                       levels = c("Low risk", "Moderately increased risk", 
+                                  "High risk", "Very high risk")), 
+    cas = case_when(cas %in% c("Lima - Rebagliati: JB", 
+                                "KAELIN") ~ "Lima - Rebagliati", 
+                    TRUE ~ cas), 
+    cas2 = case_when(cas %in% c("Lima - Almenara", "Lima - Sabogal") ~ "Lima Otros", 
+                     TRUE ~ "Otras Redes"), 
+    cas = fct_rev(fct_infreq(cas)), 
+    cas2 = fct_rev(fct_infreq(cas2))) |> 
+  labelled::set_variable_labels(
+    sex = "Sexo", 
+    age = "Edad (años)", 
+    cas = "Red de EsSalud", 
+    cas2 = "Red de EsSalud", 
+    crea = "Creatinina sérica (mg/dL)", 
+    eGFR_ckdepi = "TFG usando CKD-EPI, ml/min/1.73m2", 
+    acr = "Relación albúmina-creatinina, mg/g", 
+    urine_album = "Albúmina en orina (mg/ml)", 
+    urine_crea = "Creatinina en orina (mg/dl)", 
+    hta = "Hipertensión", 
+    dm = "Diabetes Mellitus", 
+    grf_cat = "Categorías de TFG", 
+    acr_cat = "Categorías de albuminuria persistente", 
+    ckd_class = "Clasificación CKD KDIGO", 
+    eventd5ylab = "Resultado a 5 años", 
+    eventd2ylab = "Resultado a 2 años", 
+    eventd5y = "Resultado a 5 años", 
+    death5y = "Defunción a 5 años", 
+    death2y = "Defunción a 2 años")
+```
+
+## Table 1
+
+```{r}
+# Tabla 1a
+survey::svydesign(~1, data = imp.datosA |> filter(.imp != 0), weights = ~peso) %>%
+  gtsummary::tbl_svysummary(
+    include = c(sex, age, cas2, hta, dm, acr_cat, grf_cat, ckd_class, crea,
+                eGFR_ckdepi, acr, urine_album, urine_crea,  death2y, 
+                eventd2ylab, death5y, eventd5ylab), 
+    type = list(all_continuous() ~ "continuous2", 
+                c(hta, dm) ~ "dichotomous"),
+    value = list(hta ~ "1", dm ~ "1"), 
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing"
+  ) |> 
+  bold_labels() |>  
+  modify_caption("Table 1. Baseline characteristics of the study population according CKD Stages") |> 
+  modify_footnote(everything() ~ NA) -> tab1a
+
+tab1a |>  
+  as_flex_table() |>  
+  flextable::save_as_docx(path = here("Tables/Table1_Imputed.docx"))
+
+tab1a |>  
+  gtsummary::as_kable_extra() |> 
+  kableExtra::kable_styling("striped")
+```
+
+### Supplementary Table - Comparison between CCA and Imputed results
+
+```{r}
+# Tabla 1a
+imp.datosA |> 
+  filter(.imp == 0) |> 
+  mutate(acr_miss = if_else(!is.na(acr), "Datos completos", "Datos perdidos"), 
+         across(c(hta, dm, death2y, death5y), ~ 
+                  case_when(.x == "1" ~ "Yes", 
+                            .x == "0" ~ "No",
+                            TRUE ~ as.character(NA)))) |> 
+  gtsummary::tbl_summary(
+    include = c(sex, age, cas2, hta, dm, acr_cat, grf_cat, ckd_class, crea,
+                eGFR_ckdepi, acr, urine_album, urine_crea,  death2y, 
+                eventd2ylab, death5y, eventd5ylab), 
+    by = eventd5ylab, 
+    type = list(all_continuous() ~ "continuous2", 
+                c(hta, dm, death2y, death5y) ~ "categorical"),
+    label = list(hta ~ "Hipertensión", 
+                 dm ~ "Diabetes Mellitus", 
+                 death2y ~ "Defunción a 2 años", 
+                 death5y ~ "Defunción a 5 años"), 
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing", 
+    percent = "row"
+  ) |> 
+  bold_labels() |>  
+  modify_footnote(everything() ~ NA) -> tab1a_cca
+
+imp.datosA |> 
+  filter(.imp == 0) |> 
+  mutate(acr_miss = if_else(!is.na(acr), "Datos completos", "Datos perdidos"), 
+         across(c(hta, dm, death2y, death5y), ~ 
+                  case_when(.x == "1" ~ "Yes", 
+                            .x == "0" ~ "No",
+                            TRUE ~ as.character(NA)))) |> 
+  gtsummary::tbl_summary(
+    include = c(sex, age, cas2, hta, dm, acr_miss, acr_cat, grf_cat, ckd_class, crea,
+                eGFR_ckdepi, acr, urine_album, urine_crea,  death2y, 
+                eventd2ylab, death5y, eventd5ylab), 
+    by = acr_miss,
+    type = list(all_continuous() ~ "continuous2", 
+                c(hta, dm, death2y, death5y) ~ "categorical"),
+    label = list(hta ~ "Hipertensión", 
+                 dm ~ "Diabetes Mellitus", 
+                 death2y ~ "Defunción a 2 años", 
+                 death5y ~ "Defunción a 5 años"), 
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing", 
+    percent = "row"
+  ) |> 
+  bold_labels() |> 
+  add_p() |>  
+  separate_p_footnotes() |>  
+  modify_footnote(everything() ~ NA) -> tab1a_miss
+
+
+imp.datosA |> 
+  filter(.imp == 0) |> 
+  mutate(acr_miss = if_else(!is.na(acr), "Datos completos", "Datos perdidos"), 
+         across(c(hta, dm, death2y, death5y), ~ 
+                  case_when(.x == "1" ~ "Yes", 
+                            .x == "0" ~ "No",
+                            TRUE ~ as.character(NA)))) |> 
+  gtsummary::tbl_summary(
+    include = c(sex, age, cas2, hta, dm, acr_cat, grf_cat, ckd_class, crea,
+                eGFR_ckdepi, acr, urine_album, urine_crea,  death2y, 
+                eventd2ylab, death5y, eventd5ylab), 
+    type = list(all_continuous() ~ "continuous2", 
+                c(hta, dm, death2y, death5y) ~ "categorical"),
+    label = list(hta ~ "Hipertensión", 
+                 dm ~ "Diabetes Mellitus", 
+                 death2y ~ "Defunción a 2 años", 
+                 death5y ~ "Defunción a 5 años"), 
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing", 
+    percent = "col"
+  ) |> 
+  bold_labels()  |>   
+  modify_footnote(everything() ~ NA) -> tab1a_cca_overall
+
+tbl_merge(list(tab1a_cca_overall, tab1a_cca, tab1a_miss), 
+          tab_spanner = c("**Total**\n**(% columna)**", 
+                          "**Outcome**\n**(% fila)**", 
+                          "**Missing Data in KFRE's predicted risks**\n**(% fila)**")) |>  
+  modify_caption("Table. Baseline characteristics of the study population with CKD Stages 3a-3b-4 according missing data in KFRE's predicted risk") |> 
+  bold_labels() -> tab1a_cca2
+
+tab1a_cca2 %>% 
+  as_flex_table() %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Sup_CCA_by_missing_3a4.docx"))
+
+tab1a_cca2 %>% 
+  gtsummary::as_kable_extra() %>%
+  kableExtra::kable_styling("striped")
+```
+
+
+## Cumulative incidence function for competing risks data in all imputed data
+
+Figure shows the cumulative incidence curves of renal failure and pre-renal failure death in the study patients.
+
+
+```{r}
+# Seleccion del grupo 3a-4----
+dataA <- imp.datosA |> 
+  filter(.imp == 0)
+
+tidycmprsk::cuminc(Surv(time, eventdf) ~ 1, dataA) -> cif
+
+cif |> 
+  tidy(times = 1:5) |> 
+  select(time, outcome, n.event, n.risk, n.censor, estimate, conf.low, conf.high) |> 
+  mutate(across(c(estimate, conf.low, conf.high), ~ round(100 * .x, 2)), 
+         outcome = as.character(outcome),
+         n = str_glue("{n.event} / {n.risk} ({n.censor})"), 
+         inc = str_glue("{estimate}% ({conf.low}% to {conf.high}%)")) |> 
+  select(time, outcome, n, inc) |> 
+  pivot_wider(id_cols = time, names_from = outcome, values_from = c(n, inc)) |> 
+  select(time, n_1, inc_1, n_2, inc_2) |> 
+  flextable() |> 
+    add_header_row(values = c("Year", "Kidney failure", "Death without kidney failure"), colwidths = c(1, 2, 2))  |> 
+  set_header_labels(
+    time = "Year", 
+    n_1 = "Event / Total (Censor)", 
+    inc_1 = "Cumulative Incidence (95%CI)", 
+    n_2 = "Event / Total (Censor)", 
+    inc_2 = "Cumulative Incidence (95%CI)" 
+  ) |> 
+  merge_v(j = 1, part = "header") |> 
+  set_caption("Table. Cumulative incidence of kidney failure and death without kidney failure in patients with CKD stages 3a-3b-4") %>% 
+  theme_box() |> 
+  autofit() -> tab_cif1
+
+tab_cif1 %>% 
+  save_as_docx(path = here("Tables/Table_CI_KF_3a4_imputed.docx"))
+
+tab_cif1
+```
+
+
+```{r}
+#| output: false
+
+# Seleccion del grupo 3a-4----
+dataA <- imp.datosA |> 
+  filter(.imp == 0)
+
+cmprsk::cuminc(ftime = dataA$time5y, 
+       fstatus = dataA$eventd5ylab, 
+       cencode = "Alive w/o Kidney Failure") -> cif
+
+ciplotdat <- 
+  cif %>% 
+  list_modify("Tests" = NULL) %>% 
+  map_df(`[`, c("time", "est", "var"), .id = "id") %>% 
+  mutate(id = recode(
+    id, 
+    "1 Death w/o Kidney Failure" = "Death w/o Kidney Failure", 
+    "1 Kidney Failure" = "Kidney Failure"), 
+    ll = est - 1.96 * sqrt(var), 
+    ul = est + 1.96 * sqrt(var)
+    ) %>% 
+  rename(
+    event = id
+  )
+
+ciplotdat %>% 
+  ggplot(aes(x = time, y = est)) +
+  geom_ribbon(aes(ymin = ll, ymax = ul, fill = event), 
+              alpha = 0.25, linetype = 0) + 
+  geom_step(lwd = 0.5, aes(color = event)) +
+  theme_survminer() +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) + 
+  labs(x = "Years", 
+       y = "Cumulative incidence",
+       title = NULL) + 
+  theme(legend.position = "top",
+        legend.title = element_blank(), 
+        legend.background = element_rect(fill = "white"), 
+        legend.key.size = unit(0.2, "cm")) -> g1
+
+ciplotdat %>% 
+  filter(event == "Kidney Failure") %>%
+  ggplot(aes(x = time, y = est)) +
+  geom_ribbon(aes(ymin = ll, ymax = ul), fill = "#89E1E3", 
+              alpha = 0.1, linetype = 0) + 
+  geom_step(lwd = 0.5, color = "#89E1E3") +
+  theme_survminer() +
+  ylim(c(0, 0.06)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.06)) + 
+  labs(x = "", 
+       y = "",
+       title = "") -> g2
+
+kf_fit <- survfit(
+  Surv(time5y, ifelse(eventd5y != 0, 1, 0)) ~ 1, 
+  data = dataA
+)
+
+num <- ggsurvplot(
+  fit = kf_fit, 
+  risk.table = "nrisk_cumevents", 
+  risk.table.y.text = FALSE,
+  risk.table.y.text.col = FALSE, 
+  tables.y.text = FALSE, 
+  tables.y.text.col = FALSE, 
+  ylab = "Years",
+  risk.table.fontsize = 3,
+  tables.theme = theme_survminer(font.main = 9)
+  )
+
+cowplot::plot_grid(
+  g1, 
+  num$table + theme_cleantable(), 
+  nrow = 2, 
+  rel_heights = c(4, 1), 
+  align = "v", 
+  axis = "b"
+  ) -> g3
+
+g3 + inset_element(g2, 0.15, 0.50, 1, 0.94,  
+                   align_to = 'full',  
+                   ignore_tag = TRUE) -> plot_cif_mh
+
+ggsave(filename = "Plot_CIF_imputed.png", 
+      plot = plot_cif_mh, 
+      device = "png", 
+      path = here("Figures"), 
+      dpi = 600, 
+      scale = 2, 
+      width = 9,
+      height = 9, 
+      units = "cm", 
+      bg = "white")
+```
+
+### CIF plot
+
+```{r}
+#| fig-cap: "Cumulative incidence function curves for kidney failure (sky-blue line) and death before kidney failure (red line) in patients with (A) CKD stages 3a-3b-4 and (B) CKD stages 3b-4"
+knitr::include_graphics(here("Figures", "Plot_CIF_imputed.png"))
+```
+
+## Supplementary tables
+
+### Table Original Equations {#sec-tableS1}
+
+Ecuaciones originales
+
+```{r}
+table_kfre <- data.frame(
+  pred = c("2-years", "5-years"), 
+  eq = c("$1-{0.9832}^{e^{(-0.2201\\times(\\frac{age}{10}-7.036)+0.2467\\times(male-0.5642)-0.5567\\times(\\frac{eGFR}{5}-7.222)+0.4510\\times(log{(ACR)}-5.137))}}$", 
+         "$1-{0.9365}^{e^{(-0.2201\\times(\\frac{age}{10}-7.036)+0.2467\\times(male-0.5642)-0.5567\\times(\\frac{eGFR}{5}-7.222)+0.4510\\times(log{(ACR)}-5.137))}}$")
+)
+```
+
+
+```{r}
+#| results: asis
+knitr::kable(table_kfre, escape = TRUE, 
+             col.names = c("Prediction horizons", 
+                           "Original regional equation calibrated for predicted risk of kidney failure"), 
+             caption = "Table. KFRE equations externally validated by the study")
+```
+
+
+### Table Coding {#sec-tableS2}
+
+```{r}
+table_coding <- data.frame(
+  Variable = c("age", "male", "eGFR_ckdepi", "acr"), 
+  Coding = c("integer number that indicates the age in completed years", 
+             "1 = male; 0 = female", 
+             "estimated glomerular filtration rate obtained by CKD-EPI formula in $ml/min/1.73m^2$", 
+             "albumin-to-creatinine ratio in mg/g")
+)
+```
+
+
+```{r}
+#| results: asis
+knitr::kable(table_coding, escape = TRUE, 
+             caption = "Table. Coding of variables")
+```
+
+### Cumulative incidence function for competing risks data in CCA
+
+Figure shows the cumulative incidence curves of renal failure and pre-renal failure death in the study patients.
+
+
+```{r}
+#| output: false
+
+# Seleccion del grupo 3a-4----
+dataA <- imp.datosA |> 
+  filter(.imp == 0) |> 
+  drop_na(acr)
+
+cmprsk::cuminc(ftime = dataA$time5y, 
+       fstatus = dataA$eventd5ylab, 
+       cencode = "Alive w/o Kidney Failure") -> cif
+
+ciplotdat <- 
+  cif %>% 
+  list_modify("Tests" = NULL) %>% 
+  map_df(`[`, c("time", "est", "var"), .id = "id") %>% 
+  mutate(id = recode(
+    id, 
+    "1 Death w/o Kidney Failure" = "Death w/o Kidney Failure", 
+    "1 Kidney Failure" = "Kidney Failure"), 
+    ll = est - 1.96 * sqrt(var), 
+    ul = est + 1.96 * sqrt(var)
+    ) %>% 
+  rename(
+    event = id
+  )
+
+ciplotdat %>% 
+  ggplot(aes(x = time, y = est)) +
+  geom_ribbon(aes(ymin = ll, ymax = ul, fill = event), 
+              alpha = 0.25, linetype = 0) + 
+  geom_step(lwd = 0.5, aes(color = event)) +
+  theme_survminer() +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) + 
+  labs(x = "Years", 
+       y = "Cumulative incidence",
+       title = NULL) + 
+  theme(legend.position = "top",
+        legend.title = element_blank(), 
+        legend.background = element_rect(fill = "white"), 
+        legend.key.size = unit(0.2, "cm")) -> g1
+
+ciplotdat %>% 
+  filter(event == "Kidney Failure") %>%
+  ggplot(aes(x = time, y = est)) +
+  geom_ribbon(aes(ymin = ll, ymax = ul), fill = "#89E1E3", 
+              alpha = 0.1, linetype = 0) + 
+  geom_step(lwd = 0.5, color = "#89E1E3") +
+  theme_survminer() +
+  ylim(c(0, 0.08)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.08)) + 
+  labs(x = "", 
+       y = "",
+       title = "") -> g2
+
+kf_fit <- survfit(
+  Surv(time5y, ifelse(eventd5y != 0, 1, 0)) ~ 1, 
+  data = dataA
+)
+
+num <- ggsurvplot(
+  fit = kf_fit, 
+  risk.table = "nrisk_cumevents", 
+  risk.table.y.text = FALSE,
+  risk.table.y.text.col = FALSE, 
+  tables.y.text = FALSE, 
+  tables.y.text.col = FALSE, 
+  ylab = "Years",
+  risk.table.fontsize = 3,
+  tables.theme = theme_survminer(font.main = 9)
+  )
+
+cowplot::plot_grid(
+  g1, 
+  num$table + theme_cleantable(), 
+  nrow = 2, 
+  rel_heights = c(4, 1), 
+  align = "v", 
+  axis = "b"
+  ) -> g3
+
+g3 + inset_element(g2, 0.15, 0.50, 1, 0.94,  
+                   align_to = 'full',  
+                   ignore_tag = TRUE) -> plot_cif_mh
+
+ggsave(filename = "Plot_CIF_CCA.png", 
+      plot = plot_cif_mh, 
+      device = "png", 
+      path = here("Figures"), 
+      dpi = 600, 
+      scale = 2, 
+      width = 9,
+      height = 9, 
+      units = "cm", 
+      bg = "white")
+```
+
+### CIF plot
+
+```{r}
+#| fig-cap: "Cumulative incidence function curves for kidney failure (sky-blue line) and death before kidney failure (red line) in patients with (A) CKD stages 3a-3b-4 and (B) CKD stages 3b-4"
+knitr::include_graphics(here("Figures", "Plot_CIF_CCA.png"))
+```
+
+### Table with CI in CCA
+
+```{r}
+# Seleccion del grupo 3a-4----
+data_filt <- dataA |> 
+  rename(id = .id) 
+
+tidycmprsk::cuminc(Surv(time, eventdf) ~ 1, data_filt) -> cif
+cif
+
+cif |> 
+  tidy(times = 1:5) |> 
+  select(time, outcome, n.event, n.risk, n.censor, estimate, conf.low, conf.high) |> 
+  mutate(across(c(estimate, conf.low, conf.high), ~ round(100 * .x, 2)), 
+         outcome = as.character(outcome),
+         n = str_glue("{n.event} / {n.risk} ({n.censor})"), 
+         inc = str_glue("{estimate}% ({conf.low}% to {conf.high}%)")) |> 
+  select(time, outcome, n, inc) |> 
+  pivot_wider(id_cols = time, names_from = outcome, values_from = c(n, inc)) |> 
+  select(time, n_1, inc_1, n_2, inc_2) |> 
+  flextable() |> 
+    add_header_row(values = c("Year", "Kidney failure", "Death without kidney failure"), colwidths = c(1, 2, 2))  |> 
+  set_header_labels(
+    time = "Year", 
+    n_1 = "Event / Total (Censor)", 
+    inc_1 = "Cumulative Incidence (95%CI)", 
+    n_2 = "Event / Total (Censor)", 
+    inc_2 = "Cumulative Incidence (95%CI)" 
+  ) |> 
+  merge_v(j = 1, part = "header") |> 
+  set_caption("Table. Cumulative incidence of kidney failure and death without kidney failure in patients with CKD stages 3a-3b-4") %>% 
+  theme_box() |> 
+  autofit() -> tab_cif2
+
+tab_cif2 |>  
+  save_as_docx(path = here("Tables/Table_CI_KF_3b4_CCA.docx"))
+
+tab_cif2
+```
+
+
+### Table by CAS
+
+```{r}
+# Tabla 1a
+imp.datosA |> 
+  filter(.imp == 0) |> 
+  gtsummary::tbl_summary(
+    include = c(cas2, cas), 
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing", 
+    percent = "col"
+  ) |> 
+  bold_labels() |>  
+  modify_footnote(everything() ~ NA) -> tab1a_overall
+
+imp.datosA |> 
+  filter(.imp == 0) |> 
+  gtsummary::tbl_summary(
+    include = c(cas2, cas, eventd5ylab), 
+    by = eventd5ylab,
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing", 
+    percent = "row"
+  ) |> 
+  bold_labels() |>  
+  modify_footnote(everything() ~ NA) -> tab1a
+
+imp.datosA |> 
+  filter(.imp == 0) |> 
+  mutate(acr_miss = if_else(!is.na(acr), 
+                            "Datos completos", 
+                            "Datos perdidos")) |> 
+  gtsummary::tbl_summary(
+    include = c(cas2, cas), 
+    by = acr_miss,
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25} - {p75})", 
+      "{min} - {max}"
+    ),
+    digits = list(all_continuous() ~ c(1, 1, 1, 1), 
+                  all_categorical() ~ c(0, 1)), 
+    missing_text = "Missing", 
+    percent = "row"
+  ) |> 
+  bold_labels() |> 
+  add_p() |>  
+  separate_p_footnotes() |>  
+  modify_footnote(everything() ~ NA) -> tab1a_miss
+
+tbl_merge(list(tab1a_overall, tab1a, tab1a_miss), 
+          tab_spanner = c("**Total**", "**Outcome**", "**Missing Data in KFRE's predicted risks**")) %>% 
+  modify_caption("Table. CAS dsitribution of the study population according Outcome and Missing Data in ACR in 3a-3b-4 CKD Stages") %>% 
+  bold_labels() -> tab1a
+
+tab1a |>  
+  as_flex_table() |> 
+  flextable::save_as_docx(path = here("Tables/Table_CASdist_3a4.docx"))
+```
+
+
+```{r}
+tab1a %>% 
+  gtsummary::as_kable_extra() %>%
+  kableExtra::kable_styling("striped")
+```
+
+## Ticket de Reprocubilidad
+
+```{r}
+#| label: repro_ticket
+#| column: page
+#| echo: true
+sessionInfo()
+```
+
