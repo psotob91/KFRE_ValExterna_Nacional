@@ -1,0 +1,448 @@
+---
+title: "6 - Validacion de EcuacioneS KFRE Recalibradas en datos imputados"
+author: "Percy Soto Becerra"
+format: 
+  html: 
+   toc: true
+   number-sections: true
+   df-print: paged
+   page-layout: full
+   embed-resources: true
+execute: 
+  warning: false
+---
+
+# Code to reproduce results of the manuscript 'Kidney Failure Prediction: Multicenter External Validation of the KFRE Model in Patients with CKD Stages 3-4 in Peru'
+
+## Introduction 
+
+This document presents the code and results of the main analysis shown in the article.
+
+## Setup
+
+```{r}
+#| label: load-packages
+#| include: true
+
+rm(list = ls())
+
+# Use pacman to check whether packages are installed, if not load
+if (!require("pacman")) install.packages("pacman")
+library(pacman)
+
+# Unload all package to begin in a session with only base packages
+pacman::p_unload("all")
+
+# Install packages
+pacman::p_load(
+  here, 
+  skimr, 
+  survival,
+  survminer, 
+  rms,
+  cmprsk,
+  riskRegression,
+  mstate,
+  pseudo,
+  pec,
+  plotrix,
+  knitr,
+  splines,
+  kableExtra,
+  flextable,
+  gtsummary,
+  boot,
+  tidyverse,
+  rsample,
+  gridExtra,
+  webshot, 
+  patchwork,
+  survival, 
+  ggsci, 
+  cowplot, 
+  scales, 
+  patchwork, 
+  labelled, 
+  glue, 
+  dcurves, 
+  broom, 
+  downlit, 
+  xml2, 
+  gghalves, 
+  devtools, 
+  htmltools, 
+  gghalves, 
+  ggtext, 
+  DiagrammeR, 
+  gt, 
+  janitor, 
+  VIM, 
+  PerformanceAnalytics, 
+  mice, 
+  rms, 
+  naniar, 
+  DescTools, 
+  gtools, 
+  ggExtra, 
+  furrr, 
+  future, 
+  ggmice,
+  parallel,
+  tictoc, 
+  rio,
+  tidymodels
+)
+
+if (!require("impstep")) remotes::install_github("bgravesteijn/impstep", force = TRUE)
+if (!require("smplot2")) devtools::install_github('smin95/smplot2', force = TRUE)
+
+library(impstep)
+```
+
+#### Funciones
+
+```{r}
+source(here("Code", "source", "kfre_pi.R"))
+source(here("Code", "source", "kfre_pr.R"))
+source(here("Code", "source", "oe_ratio.R"))
+source(here("Code", "source", "calibration_intercept.R"))
+source(here("Code", "source", "calibration_slope.R"))
+source(here("Code", "source", "auc.R"))
+source(here("Code", "source", "auc_brier_boot.R"))
+source(here("Code", "source", "validate.mids.R"))
+source(here("Code", "source", "pool.validate.mids.R"))
+source(here("Code", "source", "pool.auc.mids.R"))
+source(here("Code", "source", "process_imp_cal_plot.R"))
+source(here("Code", "source", "predict.mira.R"))
+source(here("Code", "source", "performance_measures.R"))
+source(here("Code", "source", "tidy_performance_stack.R"))    
+source(here("Code", "source", "tidy_pool.R")) 
+source(here("Code", "source", "process_imp_cal_plot2.R")) 
+source(here("Code", "source", "print_equation.R")) 
+```
+
+### Importar datos
+
+Las ecuaciones originales se muestran a continuacion:
+
+```{r}
+eq_kfre_original2y <- data.frame(
+  vars = c("age", "male", "eGFR", "logACR"),
+  coefs = c(-0.2201, 0.2467, -0.5567, 0.4510),
+  scale = c(10, 1, 5, 1),
+  center = c(7.036, 0.5642, 7.222, 5.137)
+)
+
+st02y <- 0.9832
+
+
+eq_kfre_original5y <- data.frame(
+  vars = c("age", "male", "eGFR", "logACR"),
+  coefs = c(-0.2201, 0.2467, -0.5567, 0.4510),
+  scale = c(10, 1, 5, 1),
+  center = c(7.036, 0.5642, 7.222, 5.137)
+)
+st05y <- 0.9365
+```
+
+- A 2 anios:
+
+```{r}
+#| results: asis
+print_equation(eq_kfre_original2y, st02y)
+```
+
+- A 5 anios:
+
+```{r}
+#| results: asis
+print_equation(eq_kfre_original2y, st02y)
+```
+
+Las nuevas sobrevidas basales y los factores de recalibracion de los coeficientes de las ecuaciones recalibradas, dependiendo del metodo usado, se muestran a continuacion
+
+```{r}
+recal_loads <- import(here("Data", "Tidy", "equations", "recal_loads.rds")) 
+recal_loads |> 
+  kbl() |> 
+  kable_classic()
+```
+
+
+## Configurar cores para parallel processing
+
+```{r}
+n_cores <- detectCores()
+
+
+# Evaluate futures in parallel - max of two workers to avoid hogging resources
+future::plan("multisession", workers = n_cores)
+```
+
+## Set some constants
+
+```{r}
+seed <- 2014
+primary_event <- 1
+imputs <- 4
+```
+
+## Importar datos
+
+```{r}
+data_impA <- readRDS(here::here("Data", "Tidy", "data_impA.rds")) 
+
+imp.datosA <- complete(data_impA, action = "long", include = TRUE) |> 
+  group_by(.imp) |> 
+  mutate(age_c = age - mean(age), 
+         male = as.integer(sex == "Masculino"), 
+         male_c = male - mean(male), 
+         eGFR_c = eGFR_ckdepi - mean(eGFR_ckdepi), 
+         acr = exp(log_acr), 
+         log_acr_c = log_acr - mean(log_acr)) |> 
+  ungroup() |> 
+  filter(.imp != 0) |> 
+  filter(.imp == 1)
+```
+
+## Actualizacion extensivo de KFRE: Modelo de subhazard distribucional de Fine & Gray
+
+```{r}
+source(here("Code", "source", "kfre_pi.R"))
+source(here("Code", "source", "kfre_pr.R"))
+source(here("Code", "source", "oe_ratio.R"))
+source(here("Code", "source", "calibration_intercept.R"))
+source(here("Code", "source", "calibration_slope.R"))
+source(here("Code", "source", "auc.R"))
+source(here("Code", "source", "auc_brier_boot.R"))
+source(here("Code", "source", "validate.mids.R"))
+source(here("Code", "source", "pool.validate.mids.R"))
+source(here("Code", "source", "pool.auc.mids.R"))
+source(here("Code", "source", "process_imp_cal_plot.R"))
+source(here("Code", "source", "predict.mira.R"))
+source(here("Code", "source", "performance_measures.R"))
+source(here("Code", "source", "tidy_performance_stack.R"))    
+source(here("Code", "source", "tidy_pool.R")) 
+source(here("Code", "source", "process_imp_cal_plot2.R")) 
+source(here("Code", "source", "print_equation.R")) 
+```
+
+
+```{r}
+primary_event <- 1 # primary event is 1 (breast cancer recurrence)
+# set 2 to fit a model for non-recurrence mortality.
+
+fit_fgr <- FGR(Hist(time, eventd) ~ age_c + male_c + eGFR_c + log_acr_c, 
+               cause = 1, 
+               data = imp.datosA)
+```
+
+```{r}
+rdata_fg <- finegray(Surv(time, eventdf) ~ .,
+  etype = "1",
+  data = imp.datosA
+)
+```
+
+
+```{r}
+fgfit <- coxph(Surv(fgstart, fgstop, fgstatus) ~ age_c + male_c + 
+                 eGFR_c + log_acr_c,
+               weight = fgwt,
+               data = rdata_fg
+)
+```
+
+
+```{r}
+data_st0 <- data.frame(fgstart = c(0, 0), 
+                       fgstop = c(2, 5), 
+                       age_c = 0, 
+                       male_c = 0, 
+                       eGFR_c = 0, 
+                       log_acr_c = 0)
+
+```
+
+```{r}
+st0 <- survfit(fgfit, newdata = data_st0, se.fit = FALSE)
+```
+
+
+```{r}
+library(tidycmprsk)
+crr_mod <- tidycmprsk::crr(Surv(time, eventdf) ~ 
+                             age_c + male_c + eGFR_c + log_acr_c, imp.datosA)
+```
+```{r}
+crr_mod
+```
+
+
+```{r}
+summary(fit_fgr)
+```
+
+
+
+```{r}
+df_recal_metA <- import(here("Data", "Tidy", "equations", "df_recal_modA.rds"))
+
+df_recal_metA2y <- df_recal_metA |> 
+  filter(year == 2) |> 
+  select(-year) |> 
+  rename(st0_imp2y = st0_imp, 
+         fc_coef_imp2y = fc_coef_imp)
+
+df_recal_metA5y <- df_recal_metA |> 
+  filter(year == 5) |> 
+  select(-year) |> 
+  rename(st0_imp5y = st0_imp, 
+         fc_coef_imp5y = fc_coef_imp)
+
+rm(df_recal_metA)
+
+imp.datosA <- imp.datosA2 |> 
+  left_join(df_recal_metA2y, by = ".imp") |> 
+  left_join(df_recal_metA5y, by = ".imp") |> 
+  mutate(eventdf = factor(eventd), 
+        risk2y = 1 - st0_imp2y ^ exp(fc_coef_imp2y * kfre_pi(imp.datosA2)), 
+        risk5y = 1 - st0_imp5y ^ exp(fc_coef_imp5y * kfre_pi(imp.datosA2))) |> 
+  select(.imp, .id, time, eventd, eventdf, risk2y, risk5y)
+
+rm(df_recal_metA2y, df_recal_metA5y)
+```
+
+```{r}
+head(imp.datosA)
+```
+
+### Calibration and Discrimination Measures
+
+```{r}
+future::plan("multisession", workers = n_cores)
+results_stack3a4_2y <- tidy_performance_stack(imp.datosA, 
+                                  horizon = 2, 
+                                  primary_event = 1, 
+                                  pred = "risk2y",
+                                  seed = seed, 
+                                  n_cores = n_cores)
+
+gc()
+
+rio::export(results_stack3a4_2y , here("Data", "Tidy", 
+                                       "res_valext_kfre_stack3a4_2y_metA.rds"))
+
+future::plan("multisession", workers = n_cores)
+results_stack3a4_5y <- tidy_performance_stack(imp.datosA, 
+                                  horizon = 5, 
+                                  primary_event = 1, 
+                                  pred = "risk5y",
+                                  seed = seed, 
+                                  n_cores = n_cores)
+
+rio::export(results_stack3a4_5y, here("Data", "Tidy", 
+                                      "res_valext_kfre_stack3a4_5y_metA.rds"))
+
+gc()
+```
+
+```{r}
+res_pool1 <- tidy_pool(results_stack3a4_2y) 
+
+res_pool1 |> 
+  kbl() |> 
+  kable_classic(full_width = T, html_font = "Cambria")
+```
+
+```{r}
+res_pool2 <- tidy_pool(results_stack3a4_5y) 
+
+res_pool2 |> 
+  kbl() |> 
+  kable_classic(full_width = T, html_font = "Cambria")
+```
+
+```{r}
+tab_res_2y <- res_pool1 |> 
+  select(term, estimate, ll, ul) |> 
+  mutate(
+    across(c(estimate, ll, ul), ~ if_else(term == "Log OE ratio", exp(.x), .x)), 
+    across(c(estimate, ll, ul), ~ if_else(term == "Logit AUC", exp(.x) / (1  + exp(.x)), .x)), 
+    term = if_else(term == "Log OE ratio", "OE ratio", term), 
+    term = if_else(term == "Logit AUC", "AUC", term), 
+    across(c(estimate, ll, ul), ~ if_else(term %in% 
+                                            c("Average predicted risk", 
+                                              "Overall observerd risk", 
+                                              "OE difference"), 100 * .x, .x)), 
+    across(c(estimate, ll, ul), ~ round(.x, 2)), 
+    measures = case_when(term == "Average predicted risk" ~ str_glue("{estimate}%"), 
+                       term %in% c("Overall observerd risk", "OE difference") ~ str_glue("{estimate}% ({ll}% to {ul}%)"),
+                       TRUE ~ str_glue("{estimate} ({ll} to {ul})")
+                       )
+    ) |> 
+  select(term, measures) |> 
+  mutate(grupo = c(rep("Calibration", 6), "Discrimination", "Overall performance"), 
+         year = "2 years")
+
+tab_res_5y <- res_pool2 |> 
+  select(term, estimate, ll, ul) |> 
+  mutate(
+    across(c(estimate, ll, ul), ~ if_else(term == "Log OE ratio", exp(.x), .x)), 
+    across(c(estimate, ll, ul), ~ if_else(term == "Logit AUC", exp(.x) / (1  + exp(.x)), .x)), 
+    term = if_else(term == "Log OE ratio", "OE ratio", term), 
+    term = if_else(term == "Logit AUC", "AUC", term), 
+    across(c(estimate, ll, ul), ~ if_else(term %in% 
+                                            c("Average predicted risk", 
+                                              "Overall observerd risk", 
+                                              "OE difference"), 100 * .x, .x)), 
+    across(c(estimate, ll, ul), ~ round(.x, 2)), 
+    measures = case_when(term == "Average predicted risk" ~ str_glue("{estimate}%"), 
+                       term %in% c("Overall observerd risk", "OE difference") ~ str_glue("{estimate}% ({ll}% to {ul}%)"),
+                       TRUE ~ str_glue("{estimate} ({ll} to {ul})")
+                       )
+    ) |> 
+  select(term, measures) |> 
+  mutate(grupo = c(rep("Calibration", 6), "Discrimination", "Overall performance"), 
+         year = "5 years")
+
+tab_res0 <- tab_res_2y |>
+  bind_rows(tab_res_5y)
+
+tab_res0 |> 
+  as_grouped_data(groups = "year") |> 
+  as_grouped_data(groups = "grupo") |> 
+  flextable::as_flextable(hide_grouplabel = TRUE) |> 
+  autofit() |> 
+  set_header_labels(
+    year = "Time horizon", 
+    term = "Performance measure", 
+    measures = "Method A"
+  ) |>  
+  bold(j = 1) |> 
+  set_caption("Table. Performance measures of KFRE in the external dataset of patients with CKD Stages 3a-4") |>  
+  theme_booktabs() |>   
+  bold(bold = TRUE, part = "header") -> table_perf_final
+
+table_perf_final %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Imputed_Performance_metA.docx"))
+
+table_perf_final
+```
+
+```{r}
+rm(list=ls()[! ls() %in% c("imp.datosA", "imp.datosA2", "vdata", 
+                           "primary_event", "horizon", 
+                           "process_imp_cal_plot", "seed", "n_cores", "kfre_pi", 
+                           "imputs")])
+gc()
+```
+
+## Ticket de Reprocubilidad
+
+```{r}
+#| label: repro_ticket
+#| column: page
+#| echo: true
+sessionInfo()
+```

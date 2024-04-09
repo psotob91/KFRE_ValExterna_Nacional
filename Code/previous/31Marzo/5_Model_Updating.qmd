@@ -1,0 +1,3547 @@
+---
+title: "2 Codigo Reproducible: Análisis de Datos - Recalibración de modelo KFRE para predecir falla renal en asegurados de EsSalud"
+author: "Percy Soto Becerra"
+format: 
+  html: 
+   toc: true
+   number-sections: true
+   df-print: paged
+   page-layout: full
+---
+
+## Introduction 
+
+This document presents the code and results of the main analysis shown in the article.
+
+## Setup
+
+```{r}
+#| label: load-packages
+#| include: true
+
+rm(list = ls())
+
+# Load libraries and data ---
+
+# Libraries ----
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(qwraps2)
+options(qwraps2_markup = "markdown")
+library(survival)
+library(survminer)
+library(riskRegression)
+library(grid)
+library(gridExtra)
+library(geepack)
+library(kableExtra)
+library(boot)
+library(Hmisc)
+library(pseudo)
+library(pec)
+library(margins)
+library(rms)
+library(lmtest)
+library(pmsampsize)
+
+pacman::p_load(
+  here, 
+  skimr, 
+  survival,
+  rms,
+  cmprsk,
+  riskRegression,
+  mstate,
+  pseudo,
+  pec,
+  riskRegression,
+  plotrix,
+  knitr,
+  splines,
+  kableExtra,
+  flextable,
+  gtsummary,
+  boot,
+  tidyverse,
+  rsample,
+  gridExtra,
+  webshot, 
+  patchwork,
+  survival, 
+  cmprsk, 
+  survminer, 
+  ggsci, 
+  cowplot, 
+  scales, 
+  patchwork, 
+  labelled, 
+  glue, 
+  dcurves, 
+  broom, 
+  downlit, 
+  xml2, 
+  gghalves, 
+  devtools, 
+  htmltools, 
+  gghalves, 
+  ggtext, 
+  DiagrammeR, 
+  gt, 
+  janitor
+)
+
+
+
+if (!require("smplot2")) devtools::install_github('smin95/smplot2', force = TRUE)
+```
+
+```{r}
+# Import data
+data <- readRDS(here::here("Data", "Tidy", "datos_total_integrados.rds")) |> 
+  filter(age >= 18, time > 0) |> 
+  drop_na(sex, age, crea, acr)
+
+# Subset patients with CKD Stages 3a-3b-4
+data %>%  
+  filter(ckd_stage == "Stages 3-4") -> dataA
+
+# Subset patients with CKD Stages 3b-4
+data %>%  
+  filter(ckd_stage2 == "Stages 3b-4") -> dataB
+```
+
+## Validación Externa de Modelo Original
+
+### Calibration
+
+#### Mean calibration: OE ratio
+
+```{r}
+#| label: calibracion-in-the-large1
+
+# Calibration (O/E) -------------------------------------------------------
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- dataA %>% 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status = factor(eventd, 
+                         levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")))
+
+# First calculate KM estimate at time t = 2 años---------------------
+# A 2 años----
+horizon <- 2
+
+vdata$pred <- vdata$risk2y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred2a <- mean(vdata$pred)
+avg_obs2a <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE2a <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred2a <- round(100 * avg_pred2a, 2)
+avg_obs2a <- round(100 * avg_obs2a, 2)
+res_OE2a <- round(res_OE2a, 2)  
+  
+# First calculate KM estimate at time t = 5 años---------------------
+
+# A 5 años----
+horizon <- 5
+
+vdata$pred <- vdata$risk5y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred5a <- mean(vdata$pred)
+avg_obs5a <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE5a <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred5a <- round(100 * avg_pred5a, 2)
+avg_obs5a <- round(100 * avg_obs5a, 2)
+res_OE5a <- round(res_OE5a, 2)  
+
+# Seleccion del grupo: Stages 3b-4----
+
+vdata <- dataB %>% 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status = factor(eventd, 
+                         levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")))
+
+# First calculate KM estimate at time t = 2 años---------------------
+# A 2 años----
+horizon <- 2
+
+vdata$pred <- vdata$risk2y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred2b <- mean(vdata$pred)
+avg_obs2b <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE2b <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred2b <- round(100 * avg_pred2b, 2)
+avg_obs2b <- round(100 * avg_obs2b, 2)
+res_OE2b <- round(res_OE2b, 2)  
+
+# First calculate KM estimate at time t = 5 años---------------------
+
+# A 5 años----
+horizon <- 5
+
+vdata$pred <- vdata$risk5y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred5b <- mean(vdata$pred)
+avg_obs5b <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE5b <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred5b <- round(100 * avg_pred5b, 2)
+avg_obs5b <- round(100 * avg_obs5b, 2)
+res_OE5b <- round(res_OE5b, 2)  
+```
+
+#### Weak calibration: Calibration intercept and Calibration slope
+
+```{r}
+#| label: calibration-intercept-slope1
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- dataA %>% 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status = factor(eventd, 
+                         levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")))
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal2a <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal2a <- round(res_cal2a, 2)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal5a <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal5a <- round(res_cal5a, 2)
+
+# Seleccion del grupo: Stages 3b-4----
+vdata <- dataB %>% 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status = factor(eventd, 
+                         levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")))
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal2b <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal2b <- round(res_cal2b, 2)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal5b <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal5b <- round(res_cal5b, 2)
+```
+
+#### Moderate calibration: Calibration curves 
+
+```{r}
+#| label: loess-pseudo1
+
+# Seleccion del grupo: Stages 3-4----
+
+vdata <- dataA %>% 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na()
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 3),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+) 
+
+mod_surv <- rms::survest(vcal, times = 2, newdata = vdata)
+
+dat_cal2a <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 3),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+) 
+
+mod_surv <- rms::survest(vcal, times = 5, newdata = vdata)
+
+dat_cal5a <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+# Seleccion del grupo: Stages 3b-4----
+
+vdata <- dataB %>% 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na()
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 3),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+) 
+
+mod_surv <- rms::survest(vcal, times = 2, newdata = vdata)
+
+dat_cal2b <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 3),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+) 
+
+mod_surv <- rms::survest(vcal, times = 5, newdata = vdata)
+
+dat_cal5b <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+
+dat_cal2a %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3a-3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p2a
+
+dat_cal5a %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3a-3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p5a
+
+dat_cal2b %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p2b
+
+dat_cal5b %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p5b
+
+(p2a | p5a) / (p2b | p5b) + plot_annotation(tag_levels = 'A') -> plot_calibration
+
+ggsave(filename = "Plot_Calibration_cox_original.png", 
+       device = "png", 
+       plot = plot_calibration, 
+       path = here("Figures"), 
+       scale = 2, 
+       width = 2100, 
+       height = 2100,
+       units = "px", 
+       dpi = 300)
+```
+
+### Fig 1
+
+```{r}
+#| label: fig-loess-ggpplot1
+#| fig.width: 7
+#| fig.height: 7
+#| fig.align: center
+#| column: page
+knitr::include_graphics(here("Figures", "Plot_Calibration_cox_original.png"))
+```
+
+### Discrimination
+
+#### Harrell's and Uno's C
+
+```{r}
+#| label: c-stat1
+#| warning: false
+#| message: false
+#| cache: true
+
+# Seleccion del grupo: Stages 3-4----
+# 5 años----
+vdata <- dataA %>% 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status = factor(eventd, 
+                         levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")))
+
+
+harrell_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C5a  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C5a <- round(res_C5a, 3)
+
+# 2 años----
+vdata <- dataA %>% 
+  select(id, risk2y, risk5y, pi2y, time2y, eventd2y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status = factor(eventd, 
+                         levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")))
+
+
+harrell_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C2a  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C2a <- round(res_C2a, 3)
+
+# Seleccion del grupo: Stages 3b-4----
+# 5 años----
+vdata <- dataB %>% 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status = factor(eventd, 
+                         levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")))
+
+
+harrell_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C5b  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C5b <- round(res_C5b, 3)
+
+# 2 años----
+vdata <- dataB %>% 
+  select(id, risk2y, risk5y, pi2y, time2y, eventd2y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status = factor(eventd, 
+                         levels = c(0, 1, 2), 
+                         labels = c("Alive w/o Kidney Failure", 
+                                    "Kidney Failure", 
+                                    "Death w/o Kidney Failure")))
+
+
+harrell_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C2b  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C2b <- round(res_C2b, 3)
+```
+
+#### Time-dependent C/D AUC 
+
+```{r}
+#| label: time-dependent-auc1
+#| warning: false
+#| message: false
+#| cache: true
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- dataA %>% 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status_num = if_else(eventd == 1, 1, 0))
+
+Uno_vdataA <-
+  timeROC::timeROC(
+    T = vdata$time, 
+    delta = vdata$status_num,
+    marker = vdata$pi5y,
+    cause = 1, 
+    weighting = "marginal", 
+    times = c(2, 5),
+    iid = TRUE
+  )
+
+# Seleccion del grupo: Stages 3b-4----
+vdata <- dataB %>% 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status_num = if_else(eventd == 1, 1, 0))
+
+Uno_vdataB <-
+  timeROC::timeROC(
+    T = vdata$time, 
+    delta = vdata$status_num,
+    marker = vdata$pi5y,
+    cause = 1, 
+    weighting = "marginal", 
+    times = c(2, 5),
+    iid = TRUE
+  )
+
+# Creating tables----
+alpha <- .05
+k <- 2
+
+res_discr2a <- matrix(c(
+  Uno_vdataA$AUC["t=2"],
+  Uno_vdataA$AUC["t=2"] - qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=2"],
+  Uno_vdataA$AUC["t=2"] + qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=2"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr2a <- round(res_discr2a, 3)
+
+res_discr5a <- matrix(c(
+  Uno_vdataA$AUC["t=5"],
+  Uno_vdataA$AUC["t=5"] - qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=5"],
+  Uno_vdataA$AUC["t=5"] + qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=5"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr5a <- round(res_discr5a, 3)
+
+res_discr2b <- matrix(c(
+  Uno_vdataB$AUC["t=2"],
+  Uno_vdataB$AUC["t=2"] - qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=2"],
+  Uno_vdataB$AUC["t=2"] + qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=2"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr2b <- round(res_discr2b, 3)
+
+res_discr5b <- matrix(c(
+  Uno_vdataB$AUC["t=5"],
+  Uno_vdataB$AUC["t=5"] - qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=5"],
+  Uno_vdataB$AUC["t=5"] + qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=5"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr5b <- round(res_discr5b, 3)
+```
+
+### Tabla 1
+
+```{r}
+#| label: table-performance-final1
+#| column: page
+
+# Average predicted risk
+avg_pred <- cbind("metrica" = "Average predicted risk", 
+                 avg_pred2a, 
+                 avg_pred5a, 
+                 avg_pred2b, 
+                 avg_pred5b)
+
+colnames(avg_pred) <- c("metrica", "est2ya", "est5ya", "est2yb", "est5yb")
+
+avg_pred %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{est2ya}%")), 
+    est5ya = as.character(glue("{est5ya}%")),
+    est2yb = as.character(glue("{est2yb}%")),
+    est5yb = as.character(glue("{est5yb}%"))   
+  ) -> avg_pred
+
+# Average observed proportion
+avg_obs <- cbind("metrica" = "Average observed proportion", 
+                 avg_obs2a, 
+                 avg_obs5a, 
+                 avg_obs2b, 
+                 avg_obs5b)
+
+colnames(avg_obs) <- c("metrica", "OE2a", "OE5a", "OE2b", "OE5b")
+
+avg_obs %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a}%")), 
+    est5ya = as.character(glue("{OE5a}%")),
+    est2yb = as.character(glue("{OE2b}%")),
+    est5yb = as.character(glue("{OE5b}%"))   
+  ) %>% 
+  select(metrica, starts_with("est")) -> avg_obs
+
+# OE summary
+OE_summary <- cbind("metrica" = "O/E ratio (95% CI)", 
+                    res_OE2a, 
+                    res_OE5a, 
+                    res_OE2b, 
+                    res_OE5b)
+
+colnames(OE_summary) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                         "OE5a", "ll5a", "ul5a", 
+                         "OE2b", "ll2b", "ul2b", 
+                         "OE5b", "ll5b", "ul5b")
+
+OE_summary %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+    ) %>% 
+  select(metrica, starts_with("est")) -> OE_summary
+
+# Calibration slope e intercept
+res_cal <- cbind("metrica" = c("Calibration slope (95% CI)"), 
+                 res_cal2a, 
+                 res_cal5a, 
+                 res_cal2b, 
+                 res_cal5b); res_cal
+
+colnames(res_cal) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                       "OE5a", "ll5a", "ul5a", 
+                       "OE2b", "ll2b", "ul2b", 
+                       "OE5b", "ll5b", "ul5b")
+res_cal <- 
+  res_cal %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+  ) %>% 
+  select(metrica, starts_with("est")) 
+
+# Harrell's and Uno's C
+res_discr_C <- cbind("metrica" = c("Harrell C (95% CI)", "Uno C (95% CI)"), 
+                 res_C2a, 
+                 res_C5a, 
+                 res_C2b, 
+                 res_C5b); res_discr_C
+
+colnames(res_discr_C) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                       "OE5a", "ll5a", "ul5a", 
+                       "OE2b", "ll2b", "ul2b", 
+                       "OE5b", "ll5b", "ul5b")
+res_discr_C <- 
+  res_discr_C %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+  ) %>% 
+  select(metrica, starts_with("est")) 
+
+# time-dependent C/D AUC
+res_discr_discr <- cbind("metrica" = " C/D AUC, at t years (95% CI)", 
+                 res_discr2a, 
+                 res_discr5a, 
+                 res_discr2b, 
+                 res_discr5b); res_discr_discr
+
+colnames(res_discr_discr) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                       "OE5a", "ll5a", "ul5a", 
+                       "OE2b", "ll2b", "ul2b", 
+                       "OE5b", "ll5b", "ul5b")
+res_discr_discr <- 
+  res_discr_discr %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+  ) %>% 
+  select(metrica, starts_with("est")) 
+
+rbind(avg_pred, avg_obs, OE_summary, res_cal, res_discr_C, res_discr_discr) -> table_performance
+```
+
+```{r}
+#| column: page
+table_performance %>% 
+  mutate(grupo = c(rep("Calibration", 4), rep("Discrimination", 3))) %>% 
+  relocate(grupo, .before = "metrica") %>%
+  bind_rows() %>% 
+  as_grouped_data(groups = "grupo") %>% 
+  flextable::as_flextable(hide_grouplabel = TRUE)  %>%
+  set_header_labels(
+    metrica = "Validation aspect and performance measure", 
+    est2ya = "t = 2 year", 
+    est5ya = "t = 5 year", 
+    est2yb = "t = 2 year", 
+    est5yb = "t = 5 year" 
+  ) %>% 
+  add_header_row(
+    values = c("Validation aspect and performance measure", "CKD Stages 3a-3b-4", "CKD Stages 3b-4"), 
+    colwidths = c(1, 2, 2)
+  ) %>% 
+  merge_v(j = 1, part = "header") %>% 
+  bold(i = c(1, 6)) %>% 
+  autofit()  %>% 
+  set_caption("Table S12. Performance measures of KFRE in the external dataset of patients with CKD Stages 3a-4 and 3b-4 estimated without accounting for competing events") %>% 
+  theme_booktabs() %>%  
+  bold(bold = TRUE, part = "header")  -> table_perf_final
+
+table_perf_final %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Performance_Modelo_Original.docx"))
+```
+
+
+```{r}
+plot(table_perf_final)
+```
+
+
+## Reclibración del Modelo en Poblacion Stage 3-4
+
+### Actualizacion de Modelo a 5 años
+
+```{r}
+# Load datasets
+sa1 <- dataA |> 
+  mutate(beta.sum = pi5y, 
+         rrt = if_else(status_num2 == "Kidney Failure", 1, 0), 
+         kfre = risk5y, 
+         time = time5y)
+```
+
+#### Reestimar riesgo basal:
+
+Bajo este enfoque de recalibración, solo reestimaremos el riesgo basal: 
+
+```{r}
+cox_5y_mod1_lp <- coxph(Surv(time, rrt) ~ offset(beta.sum), data = sa1, x = TRUE, y = TRUE)
+
+summary(cox_5y_mod1_lp)
+```
+
+```{r}
+p1 <- predictSurvProb(cox_5y_mod1_lp, 
+                      newdata = data.frame(beta.sum = 0), 
+                      times = 5,
+                      type = "survival", 
+                      confint = TRUE, 
+                      se = TRUE) 
+
+p1
+```
+
+El nuevo factor para recalcular el riesgo  basal (recalibrado) es el siguiente `r p1`.
+
+Con esto, vamos a reestimar las probabilidades predichas po el modelo recalibrado solo con la actualización del riesgo basal:
+
+```{r}
+sa1 <- sa1 |> 
+  mutate(kfre5y_mod1_lp = 1 - p1[1, 1] ^ exp(beta.sum))
+
+head(sa1, 10)
+```
+
+#### Reestimar coeficientes mediante Cox: 
+
+Primero ajustamos nuevamente una regresión del cox sobre el índice pronósitco y recalculamos el coeficiente para este
+
+```{r}
+coxs_5y_mod2_slope  <- coxph(Surv(time, rrt) ~ beta.sum, data = sa1, x = TRUE, y = TRUE)
+```
+
+La pendiente es la siguiente: 
+
+```{r}
+coxs_5y_mod2_slope$coefficients
+```
+
+Con esto, se recalcula el indice pronostico corregido por la pendiente como un nuevo predictor linear:
+
+```{r}
+sa1 <- sa1 |> 
+  mutate(beta5y.sum_mod2 = coxs_5y_mod2_slope$coefficients * beta.sum)
+```
+
+
+```{r}
+head(sa1, 10)
+```
+
+Luego, reestimamos el riesgo basal para este nuevo indice pronostico: 
+
+```{r}
+coxs_5y_mod2_lp <- coxph(Surv(time, rrt) ~ offset(beta5y.sum_mod2), 
+                         data = sa1, 
+                         x = T, 
+                         y = T)
+```
+
+
+```{r}
+p2 <- predictSurvProb(coxs_5y_mod2_lp, 
+                      newdata = data.frame(beta5y.sum_mod2 = 0), 
+                      times = 5,
+                      type = "survival", 
+                      confint = TRUE, 
+                      se = TRUE)  
+
+p2
+```
+
+Con esto se recalcula el riesgo predicho por el nuevo modelo recalibrado bajo este enfoque:
+
+```{r}
+sa1 <- sa1 |> 
+  mutate(kfre5y_mod2_slope = 1 - p2[1, 1] ^ exp(beta5y.sum_mod2))
+```
+
+### Actualizacion de Modelo a 2 años
+
+```{r}
+# Load datasets
+sa1 <- sa1 |> 
+  mutate(beta.sum = pi2y, 
+         rrt = if_else(status_num2 == "Kidney Failure", 1, 0), 
+         kfre = risk2y, 
+         time = time2y)
+```
+
+#### Reestimar riesgo basal:
+
+Bajo este enfoque de recalibración, solo reestimaremos el riesgo basal: 
+
+```{r}
+cox_2y_mod1_lp <- coxph(Surv(time, rrt) ~ offset(beta.sum), data = sa1, x = TRUE, y = TRUE)
+
+summary(cox_2y_mod1_lp)
+```
+
+```{r}
+p1 <- predictSurvProb(cox_2y_mod1_lp, 
+                      newdata = data.frame(beta.sum = 0), 
+                      times = 2,
+                      type = "survival", 
+                      confint = TRUE, 
+                      se = TRUE) 
+
+p1
+```
+
+El nuevo factor para recalcular el riesgo  basal (recalibrado) es el siguiente `r p1`.
+
+Con esto, vamos a reestimar las probabilidades predichas po el modelo recalibrado solo con la actualización del riesgo basal:
+
+```{r}
+sa1 <- sa1 |> 
+  mutate(kfre2y_mod1_lp = 1 - p1[1, 1] ^ exp(beta.sum))
+
+head(sa1, 10)
+```
+
+#### Reestimar coeficientes mediante Cox: 
+
+Primero ajustamos nuevamente una regresión del cox sobre el índice pronósitco y recalculamos el coeficiente para este
+
+```{r}
+coxs_2y_mod2_slope  <- coxph(Surv(time, rrt) ~ beta.sum, data = sa1, x = TRUE, y = TRUE)
+```
+
+La pendiente es la siguiente: 
+
+```{r}
+coxs_2y_mod2_slope$coefficients
+```
+
+Con esto, se recalcula el indice pronostico corregido por la pendiente como un nuevo predictor linear:
+
+```{r}
+sa1 <- sa1 |> 
+  mutate(beta2y.sum_mod2 = coxs_2y_mod2_slope$coefficients * beta.sum)
+```
+
+
+```{r}
+head(sa1, 10)
+```
+
+Luego, reestimamos el riesgo basal para este nuevo indice pronostico: 
+
+```{r}
+coxs_2y_mod2_lp <- coxph(Surv(time, rrt) ~ offset(beta2y.sum_mod2), 
+                         data = sa1, 
+                         x = T, 
+                         y = T)
+```
+
+
+```{r}
+p2 <- predictSurvProb(coxs_2y_mod2_lp, 
+                      newdata = data.frame(beta2y.sum_mod2 = 0), 
+                      times = 2,
+                      type = "survival", 
+                      confint = TRUE, 
+                      se = TRUE)  
+
+p2
+```
+
+Con esto se recalcula el riesgo predicho por el nuevo modelo recalibrado bajo este enfoque:
+
+```{r}
+sa1 <- sa1 |> 
+  mutate(kfre2y_mod2_slope = 1 - p2[1, 1] ^ exp(beta2y.sum_mod2))
+```
+
+## Recalibración del Modelo en Poblacion Stage 3b-4
+
+### Actualizacion de Modelo a 5 años
+
+```{r}
+# Load datasets
+sa2 <- dataB |> 
+  mutate(beta.sum = pi5y, 
+         rrt = if_else(status_num2 == "Kidney Failure", 1, 0), 
+         kfre = risk5y, 
+         time = time5y)
+```
+
+#### Reestimar riesgo basal:
+
+Bajo este enfoque de recalibración, solo reestimaremos el riesgo basal: 
+
+```{r}
+cox_5y_mod1_lp <- coxph(Surv(time, rrt) ~ offset(beta.sum), data = sa2, x = TRUE, y = TRUE)
+
+summary(cox_5y_mod1_lp)
+```
+
+```{r}
+p1 <- predictSurvProb(cox_5y_mod1_lp, 
+                      newdata = data.frame(beta.sum = 0), 
+                      times = 5,
+                      type = "survival", 
+                      confint = TRUE, 
+                      se = TRUE) 
+
+p1
+```
+
+El nuevo factor para recalcular el riesgo  basal (recalibrado) es el siguiente `r p1`.
+
+Con esto, vamos a reestimar las probabilidades predichas po el modelo recalibrado solo con la actualización del riesgo basal:
+
+```{r}
+sa2 <- sa2 |> 
+  mutate(kfre5y_mod1_lp = 1 - p1[1, 1] ^ exp(beta.sum))
+
+head(sa2, 10)
+```
+
+#### Reestimar coeficientes mediante Cox: 
+
+Primero ajustamos nuevamente una regresión del cox sobre el índice pronósitco y recalculamos el coeficiente para este
+
+```{r}
+coxs_5y_mod2_slope  <- coxph(Surv(time, rrt) ~ beta.sum, data = sa2, x = TRUE, y = TRUE)
+```
+
+La pendiente es la siguiente: 
+
+```{r}
+coxs_5y_mod2_slope$coefficients
+```
+
+Con esto, se recalcula el indice pronostico corregido por la pendiente como un nuevo predictor linear:
+
+```{r}
+sa2 <- sa2 |> 
+  mutate(beta5y.sum_mod2 = coxs_5y_mod2_slope$coefficients * beta.sum)
+```
+
+
+```{r}
+head(sa2, 10)
+```
+
+Luego, reestimamos el riesgo basal para este nuevo indice pronostico: 
+
+```{r}
+coxs_5y_mod2_lp <- coxph(Surv(time, rrt) ~ offset(beta5y.sum_mod2), 
+                         data = sa2, 
+                         x = T, 
+                         y = T)
+```
+
+
+```{r}
+p2 <- predictSurvProb(coxs_5y_mod2_lp, 
+                      newdata = data.frame(beta5y.sum_mod2 = 0), 
+                      times = 5,
+                      type = "survival", 
+                      confint = TRUE, 
+                      se = TRUE)  
+
+p2
+```
+
+Con esto se recalcula el riesgo predicho por el nuevo modelo recalibrado bajo este enfoque:
+
+```{r}
+sa2 <- sa2 |> 
+  mutate(kfre5y_mod2_slope = 1 - p2[1, 1] ^ exp(beta5y.sum_mod2))
+```
+
+### Actualizacion de Modelo a 2 años
+
+```{r}
+# Load datasets
+sa2 <- sa2 |> 
+  mutate(beta.sum = pi2y, 
+         rrt = if_else(status_num2 == "Kidney Failure", 1, 0), 
+         kfre = risk2y, 
+         time = time2y)
+```
+
+#### Reestimar riesgo basal:
+
+Bajo este enfoque de recalibración, solo reestimaremos el riesgo basal: 
+
+```{r}
+cox_2y_mod1_lp <- coxph(Surv(time, rrt) ~ offset(beta.sum), data = sa2, x = TRUE, y = TRUE)
+
+summary(cox_2y_mod1_lp)
+```
+
+```{r}
+p1 <- predictSurvProb(cox_2y_mod1_lp, 
+                      newdata = data.frame(beta.sum = 0), 
+                      times = 2,
+                      type = "survival", 
+                      confint = TRUE, 
+                      se = TRUE) 
+
+p1
+```
+
+El nuevo factor para recalcular el riesgo  basal (recalibrado) es el siguiente `r p1`.
+
+Con esto, vamos a reestimar las probabilidades predichas po el modelo recalibrado solo con la actualización del riesgo basal:
+
+```{r}
+sa2 <- sa2 |> 
+  mutate(kfre2y_mod1_lp = 1 - p1[1, 1] ^ exp(beta.sum))
+
+head(sa2, 10)
+```
+
+#### Reestimar coeficientes mediante Cox: 
+
+Primero ajustamos nuevamente una regresión del cox sobre el índice pronósitco y recalculamos el coeficiente para este
+
+```{r}
+coxs_2y_mod2_slope  <- coxph(Surv(time, rrt) ~ beta.sum, data = sa2, x = TRUE, y = TRUE)
+```
+
+La pendiente es la siguiente: 
+
+```{r}
+coxs_2y_mod2_slope$coefficients
+```
+
+Con esto, se recalcula el indice pronostico corregido por la pendiente como un nuevo predictor linear:
+
+```{r}
+sa2 <- sa2 |> 
+  mutate(beta2y.sum_mod2 = coxs_2y_mod2_slope$coefficients * beta.sum)
+```
+
+
+```{r}
+head(sa2, 10)
+```
+
+Luego, reestimamos el riesgo basal para este nuevo indice pronostico: 
+
+```{r}
+coxs_2y_mod2_lp <- coxph(Surv(time, rrt) ~ offset(beta2y.sum_mod2), 
+                         data = sa2, 
+                         x = T, 
+                         y = T)
+```
+
+
+```{r}
+p2 <- predictSurvProb(coxs_2y_mod2_lp, 
+                      newdata = data.frame(beta2y.sum_mod2 = 0), 
+                      times = 2,
+                      type = "survival", 
+                      confint = TRUE, 
+                      se = TRUE)  
+
+p2
+```
+
+Con esto se recalcula el riesgo predicho por el nuevo modelo recalibrado bajo este enfoque:
+
+```{r}
+sa2 <- sa2 |> 
+  mutate(kfre2y_mod2_slope = 1 - p2[1, 1] ^ exp(beta2y.sum_mod2))
+```
+
+## Rendimiento Predictivo de Modelo Recalibrado 1 - Riesgo basal reestimado
+
+### Calibration
+
+#### Mean calibration: OE ratio
+
+```{r}
+#| label: calibracion-in-the-large2
+
+# Calibration (O/E) -------------------------------------------------------
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- sa1 %>% 
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+# First calculate KM estimate at time t = 2 años---------------------
+# A 2 años----
+horizon <- 2
+
+vdata$pred <- vdata$risk2y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon, 
+               extend = TRUE)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred2a <- mean(vdata$pred)
+avg_obs2a <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE2a <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred2a <- round(100 * avg_pred2a, 2)
+avg_obs2a <- round(100 * avg_obs2a, 2)
+res_OE2a <- round(res_OE2a, 2)  
+  
+# First calculate KM estimate at time t = 5 años---------------------
+
+# A 5 años----
+horizon <- 5
+
+vdata$pred <- vdata$risk5y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon, extend = TRUE)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred5a <- mean(vdata$pred)
+avg_obs5a <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE5a <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred5a <- round(100 * avg_pred5a, 2)
+avg_obs5a <- round(100 * avg_obs5a, 2)
+res_OE5a <- round(res_OE5a, 2)  
+
+# Seleccion del grupo: Stages 3b-4----
+
+vdata <- sa2 %>% 
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+# First calculate KM estimate at time t = 2 años---------------------
+# A 2 años----
+horizon <- 2
+
+vdata$pred <- vdata$risk2y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred2b <- mean(vdata$pred)
+avg_obs2b <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE2b <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred2b <- round(100 * avg_pred2b, 2)
+avg_obs2b <- round(100 * avg_obs2b, 2)
+res_OE2b <- round(res_OE2b, 2)  
+
+# First calculate KM estimate at time t = 5 años---------------------
+
+# A 5 años----
+horizon <- 5
+
+vdata$pred <- vdata$risk5y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon, extend = TRUE)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred5b <- mean(vdata$pred)
+avg_obs5b <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE5b <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred5b <- round(100 * avg_pred5b, 2)
+avg_obs5b <- round(100 * avg_obs5b, 2)
+res_OE5b <- round(res_OE5b, 2)  
+```
+
+#### Weak calibration: Calibration intercept and Calibration slope
+
+```{r}
+#| label: calibration-intercept-slope2
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- sa1 %>% 
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal2a <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal2a <- round(res_cal2a, 2)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal5a <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal5a <- round(res_cal5a, 2)
+
+# Seleccion del grupo: Stages 3b-4----
+vdata <- sa2 %>% 
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal2b <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal2b <- round(res_cal2b, 2)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal5b <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal5b <- round(res_cal5b, 2)
+```
+
+#### Moderate calibration: Calibration curves 
+
+```{r}
+#| label: loess-pseudo2
+
+# Seleccion del grupo: Stages 3-4----
+
+vdata <- sa1 %>% 
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na()
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 3),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+) 
+
+mod_surv <- rms::survest(vcal, times = 2, newdata = vdata)
+
+dat_cal2a <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 3),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+) 
+
+mod_surv <- rms::survest(vcal, times = 5, newdata = vdata)
+
+dat_cal5a <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+```
+
+
+```{r}
+# Seleccion del grupo: Stages 3b-4----
+
+vdata <- sa2 %>% 
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na()
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+```
+
+
+```{r}
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 5),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+)
+```
+
+
+```{r}
+mod_surv <- rms::survest(vcal, times = 2, newdata = vdata)
+
+dat_cal2b <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+```
+
+
+```{r}
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 5),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+)
+```
+
+
+```{r}
+mod_surv <- rms::survest(vcal, times = 5, newdata = vdata)
+
+dat_cal5b <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+
+dat_cal2a %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3a-3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p2a
+
+dat_cal5a %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3a-3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p5a
+
+dat_cal2b %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p2b
+
+dat_cal5b %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p5b
+
+(p2a | p5a) / (p2b | p5b) + plot_annotation(tag_levels = 'A') -> plot_calibration
+```
+
+
+```{r}
+ggsave(filename = "Plot_Calibracion_Modelo_Recalibrado_RiesgoBasal.png", 
+       device = "png", 
+       plot = plot_calibration, 
+       path = here("Figures"), 
+       scale = 2, 
+       width = 2100, 
+       height = 2100,
+       units = "px", 
+       dpi = 300)
+```
+
+### Fig 2
+
+```{r}
+#| label: fig-loess-ggpplot2
+#| fig.width: 7
+#| fig.height: 7
+#| fig.align: center
+#| column: page
+knitr::include_graphics(here("Figures", "Plot_Calibracion_Modelo_Recalibrado_RiesgoBasal.png"))
+```
+
+### Discrimination
+
+#### Harrell's and Uno's C
+
+```{r}
+#| label: c-stat2
+#| warning: false
+#| message: false
+#| cache: true
+
+# Seleccion del grupo: Stages 3-4----
+# 5 años----
+vdata <- sa1 %>%   
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp) |> 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+harrell_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C5a  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C5a <- round(res_C5a, 3)
+
+# 2 años----
+vdata <- sa1 %>%   
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp) |> 
+  select(id, risk2y, risk5y, pi2y, time2y, eventd2y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+
+harrell_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C2a  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C2a <- round(res_C2a, 3)
+
+# Seleccion del grupo: Stages 3b-4----
+# 5 años----
+vdata <- sa2 %>%   
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp) |> 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+
+harrell_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C5b  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C5b <- round(res_C5b, 3)
+
+# 2 años----
+vdata <- sa2 %>%   
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp) |> 
+  select(id, risk2y, risk5y, pi2y, time2y, eventd2y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+
+harrell_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C2b  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C2b <- round(res_C2b, 3)
+```
+
+#### Time-dependent C/D AUC 
+
+```{r}
+#| label: time-dependent-auc2
+#| warning: false
+#| message: false
+#| cache: true
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- sa1 %>%
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp) |> 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status_num = if_else(eventd == 1, 1, 0))
+
+Uno_vdataA <-
+  timeROC::timeROC(
+    T = vdata$time, 
+    delta = vdata$status_num,
+    marker = vdata$pi5y,
+    cause = 1, 
+    weighting = "marginal", 
+    times = c(2, 5),
+    iid = TRUE
+  )
+
+# Seleccion del grupo: Stages 3b-4----
+vdata <- sa2 %>% 
+  mutate(risk2y = kfre2y_mod1_lp, 
+         risk5y = kfre5y_mod1_lp) |> 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status_num = if_else(eventd == 1, 1, 0))
+
+Uno_vdataB <-
+  timeROC::timeROC(
+    T = vdata$time, 
+    delta = vdata$status_num,
+    marker = vdata$pi5y,
+    cause = 1, 
+    weighting = "marginal", 
+    times = c(2, 5),
+    iid = TRUE
+  )
+
+# Creating tables----
+alpha <- .05
+k <- 2
+
+res_discr2a <- matrix(c(
+  Uno_vdataA$AUC["t=2"],
+  Uno_vdataA$AUC["t=2"] - qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=2"],
+  Uno_vdataA$AUC["t=2"] + qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=2"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr2a <- round(res_discr2a, 3)
+
+res_discr5a <- matrix(c(
+  Uno_vdataA$AUC["t=5"],
+  Uno_vdataA$AUC["t=5"] - qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=5"],
+  Uno_vdataA$AUC["t=5"] + qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=5"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr5a <- round(res_discr5a, 3)
+
+res_discr2b <- matrix(c(
+  Uno_vdataB$AUC["t=2"],
+  Uno_vdataB$AUC["t=2"] - qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=2"],
+  Uno_vdataB$AUC["t=2"] + qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=2"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr2b <- round(res_discr2b, 3)
+
+res_discr5b <- matrix(c(
+  Uno_vdataB$AUC["t=5"],
+  Uno_vdataB$AUC["t=5"] - qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=5"],
+  Uno_vdataB$AUC["t=5"] + qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=5"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr5b <- round(res_discr5b, 3)
+```
+
+### Tabla 2
+
+```{r}
+#| label: table-performance-final2
+#| column: page
+
+# Average predicted risk
+avg_pred <- cbind("metrica" = "Average predicted risk", 
+                 avg_pred2a, 
+                 avg_pred5a, 
+                 avg_pred2b, 
+                 avg_pred5b)
+
+colnames(avg_pred) <- c("metrica", "est2ya", "est5ya", "est2yb", "est5yb")
+
+avg_pred %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{est2ya}%")), 
+    est5ya = as.character(glue("{est5ya}%")),
+    est2yb = as.character(glue("{est2yb}%")),
+    est5yb = as.character(glue("{est5yb}%"))   
+  ) -> avg_pred
+
+# Average observed proportion
+avg_obs <- cbind("metrica" = "Average observed proportion", 
+                 avg_obs2a, 
+                 avg_obs5a, 
+                 avg_obs2b, 
+                 avg_obs5b)
+
+colnames(avg_obs) <- c("metrica", "OE2a", "OE5a", "OE2b", "OE5b")
+
+avg_obs %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a}%")), 
+    est5ya = as.character(glue("{OE5a}%")),
+    est2yb = as.character(glue("{OE2b}%")),
+    est5yb = as.character(glue("{OE5b}%"))   
+  ) %>% 
+  select(metrica, starts_with("est")) -> avg_obs
+
+# OE summary
+OE_summary <- cbind("metrica" = "O/E ratio (95% CI)", 
+                    res_OE2a, 
+                    res_OE5a, 
+                    res_OE2b, 
+                    res_OE5b)
+
+colnames(OE_summary) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                         "OE5a", "ll5a", "ul5a", 
+                         "OE2b", "ll2b", "ul2b", 
+                         "OE5b", "ll5b", "ul5b")
+
+OE_summary %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+    ) %>% 
+  select(metrica, starts_with("est")) -> OE_summary
+
+# Calibration slope e intercept
+res_cal <- cbind("metrica" = c("Calibration slope (95% CI)"), 
+                 res_cal2a, 
+                 res_cal5a, 
+                 res_cal2b, 
+                 res_cal5b); res_cal
+
+colnames(res_cal) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                       "OE5a", "ll5a", "ul5a", 
+                       "OE2b", "ll2b", "ul2b", 
+                       "OE5b", "ll5b", "ul5b")
+res_cal <- 
+  res_cal %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+  ) %>% 
+  select(metrica, starts_with("est")) 
+
+# Harrell's and Uno's C
+res_discr_C <- cbind("metrica" = c("Harrell C (95% CI)", "Uno C (95% CI)"), 
+                 res_C2a, 
+                 res_C5a, 
+                 res_C2b, 
+                 res_C5b); res_discr_C
+
+colnames(res_discr_C) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                       "OE5a", "ll5a", "ul5a", 
+                       "OE2b", "ll2b", "ul2b", 
+                       "OE5b", "ll5b", "ul5b")
+res_discr_C <- 
+  res_discr_C %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+  ) %>% 
+  select(metrica, starts_with("est")) 
+
+# time-dependent C/D AUC
+res_discr_discr <- cbind("metrica" = " C/D AUC, at t years (95% CI)", 
+                 res_discr2a, 
+                 res_discr5a, 
+                 res_discr2b, 
+                 res_discr5b); res_discr_discr
+
+colnames(res_discr_discr) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                       "OE5a", "ll5a", "ul5a", 
+                       "OE2b", "ll2b", "ul2b", 
+                       "OE5b", "ll5b", "ul5b")
+res_discr_discr <- 
+  res_discr_discr %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+  ) %>% 
+  select(metrica, starts_with("est")) 
+
+rbind(avg_pred, avg_obs, OE_summary, res_cal, res_discr_C, res_discr_discr) -> table_performance
+```
+
+```{r}
+#| column: page
+table_performance %>% 
+  mutate(grupo = c(rep("Calibration", 4), rep("Discrimination", 3))) %>% 
+  relocate(grupo, .before = "metrica") %>%
+  bind_rows() %>% 
+  as_grouped_data(groups = "grupo") %>% 
+  flextable::as_flextable(hide_grouplabel = TRUE)  %>%
+  set_header_labels(
+    metrica = "Validation aspect and performance measure", 
+    est2ya = "t = 2 year", 
+    est5ya = "t = 5 year", 
+    est2yb = "t = 2 year", 
+    est5yb = "t = 5 year" 
+  ) %>% 
+  add_header_row(
+    values = c("Validation aspect and performance measure", "CKD Stages 3a-3b-4", "CKD Stages 3b-4"), 
+    colwidths = c(1, 2, 2)
+  ) %>% 
+  merge_v(j = 1, part = "header") %>% 
+  bold(i = c(1, 6)) %>% 
+  autofit()  %>% 
+  set_caption("Table S12. Performance measures of KFRE in the external dataset of patients with CKD Stages 3a-4 and 3b-4 estimated without accounting for competing events") %>% 
+  theme_booktabs() %>%  
+  bold(bold = TRUE, part = "header")  -> table_perf_final
+
+table_perf_final %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Modelo_Recalibrado_RiesgoBasal.docx"))
+```
+
+
+```{r}
+plot(table_perf_final)
+```
+
+## Rendimiento Predictivo de Modelo Recalibrado 2 - Riesgo basal + Coeficientes reestimados
+
+### Calibration
+
+#### Mean calibration: OE ratio
+
+```{r}
+#| label: calibracion-in-the-large3
+
+# Calibration (O/E) -------------------------------------------------------
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- sa1 %>% 
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+# First calculate KM estimate at time t = 2 años---------------------
+# A 2 años----
+horizon <- 2
+
+vdata$pred <- vdata$risk2y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon, 
+               extend = TRUE)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred2a <- mean(vdata$pred)
+avg_obs2a <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE2a <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred2a <- round(100 * avg_pred2a, 2)
+avg_obs2a <- round(100 * avg_obs2a, 2)
+res_OE2a <- round(res_OE2a, 2)  
+  
+# First calculate KM estimate at time t = 5 años---------------------
+
+# A 5 años----
+horizon <- 5
+
+vdata$pred <- vdata$risk5y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon, extend = TRUE)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred5a <- mean(vdata$pred)
+avg_obs5a <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE5a <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred5a <- round(100 * avg_pred5a, 2)
+avg_obs5a <- round(100 * avg_obs5a, 2)
+res_OE5a <- round(res_OE5a, 2)  
+
+# Seleccion del grupo: Stages 3b-4----
+
+vdata <- sa2 %>% 
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+# First calculate KM estimate at time t = 2 años---------------------
+# A 2 años----
+horizon <- 2
+
+vdata$pred <- vdata$risk2y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred2b <- mean(vdata$pred)
+avg_obs2b <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE2b <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred2b <- round(100 * avg_pred2b, 2)
+avg_obs2b <- round(100 * avg_obs2b, 2)
+res_OE2b <- round(res_OE2b, 2)  
+
+# First calculate KM estimate at time t = 5 años---------------------
+
+# A 5 años----
+horizon <- 5
+
+vdata$pred <- vdata$risk5y
+
+obj <- summary(survfit(Surv(time, status == "Kidney Failure") ~ 1, 
+                        data = vdata), 
+                times = horizon, extend = TRUE)
+
+OE <- (1 - obj$surv) / mean(vdata$pred)
+
+avg_pred5b <- mean(vdata$pred)
+avg_obs5b <- (1 - obj$surv) 
+
+alpha <- 0.05
+res_OE5b <- matrix(c(OE,
+                   OE * exp(-qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event)),
+                   OE * exp(qnorm(1 - alpha / 2) * sqrt(1 / obj$n.event))
+                   ),
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("OE ratio"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+                 )
+
+avg_pred5b <- round(100 * avg_pred5b, 2)
+avg_obs5b <- round(100 * avg_obs5b, 2)
+res_OE5b <- round(res_OE5b, 2)  
+```
+
+#### Weak calibration: Calibration intercept and Calibration slope
+
+```{r}
+#| label: calibration-intercept-slope3
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- sa1 %>% 
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal2a <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal2a <- round(res_cal2a, 2)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal5a <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal5a <- round(res_cal5a, 2)
+
+# Seleccion del grupo: Stages 3b-4----
+vdata <- sa2 %>% 
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal2b <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal2b <- round(res_cal2b, 2)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# cloglog and center for the basic and extended model
+lp.val <- log(-log(1 - vdata$pred))   # lp = cloglog
+center <- mean(lp.val)  # center
+
+### Model with a slope and an intercept
+f.val <- coxph(Surv(vdata$time, vdata$status == "Kidney Failure") ~ lp.val)  
+slope <- f.val$coefficients[1]
+slope.se <- sqrt(vcov(f.val)[[1, 1]])
+
+alpha <- 0.05
+res_cal5b <- matrix(c(
+                slope,
+                slope - qnorm(1 - alpha / 2) * slope.se,
+                slope + qnorm(1 - alpha / 2) * slope.se
+                   ),
+                 
+                 nrow = 1,
+                 ncol = 3,
+                 byrow = T,
+                 dimnames = list(
+                   c("Calibration slope"),
+                   rep(c("Estimate", "Lower .95", "Upper .95"), 1))
+)
+
+res_cal5b <- round(res_cal5b, 2)
+```
+
+#### Moderate calibration: Calibration curves 
+
+```{r}
+#| label: loess-pseudo3
+
+# Seleccion del grupo: Stages 3-4----
+
+vdata <- sa1 %>% 
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na()
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 3),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+) 
+
+mod_surv <- rms::survest(vcal, times = 2, newdata = vdata)
+
+dat_cal2a <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 3),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+) 
+
+mod_surv <- rms::survest(vcal, times = 5, newdata = vdata)
+
+dat_cal5a <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+```
+
+
+```{r}
+# Seleccion del grupo: Stages 3b-4----
+
+vdata <- sa2 %>% 
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope)  |> 
+  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na()
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+```
+
+
+```{r}
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 5),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+)
+```
+
+
+```{r}
+mod_surv <- rms::survest(vcal, times = 2, newdata = vdata)
+
+dat_cal2b <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+
+# Basic model
+vdata <- data.frame(vdata)
+vdata$pred.cll <- log(-log(1 - vdata$pred))
+```
+
+
+```{r}
+# Estimate actual risk - basic model
+vcal <- rms::cph(Surv(time, eventd == 1) ~ rcs(pred.cll, 5),
+                 x = T,
+                 y = T,
+                 surv = T,
+                 data = vdata
+)
+```
+
+
+```{r}
+mod_surv <- rms::survest(vcal, times = 5, newdata = vdata)
+
+dat_cal5b <- cbind.data.frame(
+  "obs" = 1 - mod_surv$surv,
+  
+  "lower" = 1 - mod_surv$upper,
+  
+  "upper" = 1 - mod_surv$lower,
+  
+  "pred" = as.vector(vdata$pred)
+)
+
+
+dat_cal2a %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3a-3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p2a
+
+dat_cal5a %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3a-3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p5a
+
+dat_cal2b %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p2b
+
+dat_cal5b %>% 
+  ggplot(aes(x = pred, y = obs)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey90") + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions estimated \n w/o accounting competing event") + 
+  theme_bw() + 
+  labs(title = "CKD Stages 3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5)) -> p5b
+
+(p2a | p5a) / (p2b | p5b) + plot_annotation(tag_levels = 'A') -> plot_calibration
+```
+
+
+```{r}
+ggsave(filename = "Plot_Calibracion_Modelo_Recalibrado_Pendientes.png", 
+       device = "png", 
+       plot = plot_calibration, 
+       path = here("Figures"), 
+       scale = 2, 
+       width = 2100, 
+       height = 2100,
+       units = "px", 
+       dpi = 300)
+```
+
+### Fig 3
+
+```{r}
+#| label: fig-loess-ggpplot3
+#| fig.width: 7
+#| fig.height: 7
+#| fig.align: center
+#| column: page
+knitr::include_graphics(here("Figures", "Plot_Calibracion_Modelo_Recalibrado_Pendientes.png"))
+```
+
+### Discrimination
+
+#### Harrell's and Uno's C
+
+```{r}
+#| label: c-stat3
+#| warning: false
+#| message: false
+#| cache: true
+
+# Seleccion del grupo: Stages 3-4----
+# 5 años----
+vdata <- sa1 %>%   
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope, 
+         pi5y = beta5y.sum_mod2) |> 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+harrell_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C5a  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C5a <- round(res_C5a, 3)
+
+# 2 años----
+vdata <- sa1 %>%   
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope, 
+         pi2y = beta2y.sum_mod2) |> 
+  select(id, risk2y, risk5y, pi2y, time2y, eventd2y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+
+harrell_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C2a  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C2a <- round(res_C2a, 3)
+
+# Seleccion del grupo: Stages 3b-4----
+# 5 años----
+vdata <- sa2 %>%   
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope, 
+         pi5y = beta5y.sum_mod2) |> 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+
+harrell_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time5y, eventd5y == 1) ~ pi5y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C5b  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C5b <- round(res_C5b, 3)
+
+# 2 años----
+vdata <- sa2 %>%   
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope, 
+         pi2y = beta2y.sum_mod2) |> 
+  select(id, risk2y, risk5y, pi2y, time2y, eventd2y, time, status_num2) %>%  
+  drop_na() %>%  
+  mutate(status = status_num2)
+
+
+harrell_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                               vdata, 
+                               reverse = TRUE)
+
+Uno_C_vdata <- concordance(Surv(time2y, eventd2y == 1) ~ pi2y, 
+                           vdata, 
+                           reverse = TRUE,
+                           timewt = "n/G2")
+
+alpha <- 0.05
+temp <- c(
+  harrell_C_vdata$concordance,
+  harrell_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+  harrell_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(harrell_C_vdata$var),
+
+  Uno_C_vdata$concordance,
+  Uno_C_vdata$concordance - qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var),
+  Uno_C_vdata$concordance + qnorm(1 - alpha/2) * sqrt(Uno_C_vdata$var)
+)
+
+res_C2b  <- matrix(temp, 
+                nrow = 2, 
+                ncol = 3, 
+                byrow = TRUE,
+                dimnames = list(
+  c("Harrell C - Validation data ", 
+    "Uno C - Validation data"),
+  
+  c(rep(c("Estimate", "Lower .95", "Upper .95"), 1)))
+)
+
+res_C2b <- round(res_C2b, 3)
+```
+
+#### Time-dependent C/D AUC 
+
+```{r}
+#| label: time-dependent-auc3
+#| warning: false
+#| message: false
+#| cache: true
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- sa1 %>% 
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope) |> 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status_num = if_else(eventd == 1, 1, 0))
+
+Uno_vdataA <-
+  timeROC::timeROC(
+    T = vdata$time, 
+    delta = vdata$status_num,
+    marker = vdata$pi5y,
+    cause = 1, 
+    weighting = "marginal", 
+    times = c(2, 5),
+    iid = TRUE
+  )
+
+# Seleccion del grupo: Stages 3b-4----
+vdata <- sa2 %>%   
+  mutate(risk2y = kfre2y_mod2_slope, 
+         risk5y = kfre5y_mod2_slope) |> 
+  select(id, risk2y, risk5y, pi5y, time5y, eventd5y, time, eventd) %>%  
+  drop_na() %>%  
+  mutate(status_num = if_else(eventd == 1, 1, 0))
+
+Uno_vdataB <-
+  timeROC::timeROC(
+    T = vdata$time, 
+    delta = vdata$status_num,
+    marker = vdata$pi5y,
+    cause = 1, 
+    weighting = "marginal", 
+    times = c(2, 5),
+    iid = TRUE
+  )
+
+# Creating tables----
+alpha <- .05
+k <- 2
+
+res_discr2a <- matrix(c(
+  Uno_vdataA$AUC["t=2"],
+  Uno_vdataA$AUC["t=2"] - qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=2"],
+  Uno_vdataA$AUC["t=2"] + qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=2"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr2a <- round(res_discr2a, 3)
+
+res_discr5a <- matrix(c(
+  Uno_vdataA$AUC["t=5"],
+  Uno_vdataA$AUC["t=5"] - qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=5"],
+  Uno_vdataA$AUC["t=5"] + qnorm(1 - alpha / 2) * Uno_vdataA$inference$vect_sd_1["t=5"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr5a <- round(res_discr5a, 3)
+
+res_discr2b <- matrix(c(
+  Uno_vdataB$AUC["t=2"],
+  Uno_vdataB$AUC["t=2"] - qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=2"],
+  Uno_vdataB$AUC["t=2"] + qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=2"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr2b <- round(res_discr2b, 3)
+
+res_discr5b <- matrix(c(
+  Uno_vdataB$AUC["t=5"],
+  Uno_vdataB$AUC["t=5"] - qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=5"],
+  Uno_vdataB$AUC["t=5"] + qnorm(1 - alpha / 2) * Uno_vdataB$inference$vect_sd_1["t=5"]
+),
+nrow = 1, ncol = 3, byrow = T,
+dimnames =
+  list(
+    c("Uno AUC"),
+    rep(c("Estimate", "Lower .95 ", "Upper .95"), 1)
+  )
+)
+
+res_discr5b <- round(res_discr5b, 3)
+```
+
+### Tabla 3
+
+```{r}
+#| label: table-performance-final3
+#| column: page
+
+# Average predicted risk
+avg_pred <- cbind("metrica" = "Average predicted risk", 
+                 avg_pred2a, 
+                 avg_pred5a, 
+                 avg_pred2b, 
+                 avg_pred5b)
+
+colnames(avg_pred) <- c("metrica", "est2ya", "est5ya", "est2yb", "est5yb")
+
+avg_pred %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{est2ya}%")), 
+    est5ya = as.character(glue("{est5ya}%")),
+    est2yb = as.character(glue("{est2yb}%")),
+    est5yb = as.character(glue("{est5yb}%"))   
+  ) -> avg_pred
+
+# Average observed proportion
+avg_obs <- cbind("metrica" = "Average observed proportion", 
+                 avg_obs2a, 
+                 avg_obs5a, 
+                 avg_obs2b, 
+                 avg_obs5b)
+
+colnames(avg_obs) <- c("metrica", "OE2a", "OE5a", "OE2b", "OE5b")
+
+avg_obs %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a}%")), 
+    est5ya = as.character(glue("{OE5a}%")),
+    est2yb = as.character(glue("{OE2b}%")),
+    est5yb = as.character(glue("{OE5b}%"))   
+  ) %>% 
+  select(metrica, starts_with("est")) -> avg_obs
+
+# OE summary
+OE_summary <- cbind("metrica" = "O/E ratio (95% CI)", 
+                    res_OE2a, 
+                    res_OE5a, 
+                    res_OE2b, 
+                    res_OE5b)
+
+colnames(OE_summary) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                         "OE5a", "ll5a", "ul5a", 
+                         "OE2b", "ll2b", "ul2b", 
+                         "OE5b", "ll5b", "ul5b")
+
+OE_summary %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+    ) %>% 
+  select(metrica, starts_with("est")) -> OE_summary
+
+# Calibration slope e intercept
+res_cal <- cbind("metrica" = c("Calibration slope (95% CI)"), 
+                 res_cal2a, 
+                 res_cal5a, 
+                 res_cal2b, 
+                 res_cal5b); res_cal
+
+colnames(res_cal) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                       "OE5a", "ll5a", "ul5a", 
+                       "OE2b", "ll2b", "ul2b", 
+                       "OE5b", "ll5b", "ul5b")
+res_cal <- 
+  res_cal %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+  ) %>% 
+  select(metrica, starts_with("est")) 
+
+# Harrell's and Uno's C
+res_discr_C <- cbind("metrica" = c("Harrell C (95% CI)", "Uno C (95% CI)"), 
+                 res_C2a, 
+                 res_C5a, 
+                 res_C2b, 
+                 res_C5b); res_discr_C
+
+colnames(res_discr_C) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                       "OE5a", "ll5a", "ul5a", 
+                       "OE2b", "ll2b", "ul2b", 
+                       "OE5b", "ll5b", "ul5b")
+res_discr_C <- 
+  res_discr_C %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+  ) %>% 
+  select(metrica, starts_with("est")) 
+
+# time-dependent C/D AUC
+res_discr_discr <- cbind("metrica" = " C/D AUC, at t years (95% CI)", 
+                 res_discr2a, 
+                 res_discr5a, 
+                 res_discr2b, 
+                 res_discr5b); res_discr_discr
+
+colnames(res_discr_discr) <- c("metrica", "OE2a", "ll2a", "ul2a", 
+                       "OE5a", "ll5a", "ul5a", 
+                       "OE2b", "ll2b", "ul2b", 
+                       "OE5b", "ll5b", "ul5b")
+res_discr_discr <- 
+  res_discr_discr %>% 
+  as_tibble() %>% 
+  mutate(
+    est2ya = as.character(glue("{OE2a} ({ll2a} to {ul2a})")), 
+    est5ya = as.character(glue("{OE5a} ({ll5a} to {ul5a})")),
+    est2yb = as.character(glue("{OE2b} ({ll2b} to {ul2b})")),
+    est5yb = as.character(glue("{OE5b} ({ll5b} to {ul5b})"))   
+  ) %>% 
+  select(metrica, starts_with("est")) 
+
+rbind(avg_pred, avg_obs, OE_summary, res_cal, res_discr_C, res_discr_discr) -> table_performance
+```
+
+```{r}
+#| column: page
+table_performance %>% 
+  mutate(grupo = c(rep("Calibration", 4), rep("Discrimination", 3))) %>% 
+  relocate(grupo, .before = "metrica") %>%
+  bind_rows() %>% 
+  as_grouped_data(groups = "grupo") %>% 
+  flextable::as_flextable(hide_grouplabel = TRUE)  %>%
+  set_header_labels(
+    metrica = "Validation aspect and performance measure", 
+    est2ya = "t = 2 year", 
+    est5ya = "t = 5 year", 
+    est2yb = "t = 2 year", 
+    est5yb = "t = 5 year" 
+  ) %>% 
+  add_header_row(
+    values = c("Validation aspect and performance measure", "CKD Stages 3a-3b-4", "CKD Stages 3b-4"), 
+    colwidths = c(1, 2, 2)
+  ) %>% 
+  merge_v(j = 1, part = "header") %>% 
+  bold(i = c(1, 6)) %>% 
+  autofit()  %>% 
+  set_caption("Table S12. Performance measures of KFRE in the external dataset of patients with CKD Stages 3a-4 and 3b-4 estimated without accounting for competing events") %>% 
+  theme_booktabs() %>%  
+  bold(bold = TRUE, part = "header")  -> table_perf_final
+
+table_perf_final %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Modelo_Recalibrado_Pendientes.docx"))
+```
+
+
+```{r}
+plot(table_perf_final)
+```
+
+
+## Ticket de Reproducibilidad
+
+```{r}
+sessionInfo()
+```
+

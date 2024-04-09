@@ -1,0 +1,784 @@
+---
+title: "6 - Validacion de EcuacioneS KFRE Recalibradas en datos imputados"
+author: "Percy Soto Becerra"
+format: 
+  html: 
+   toc: true
+   number-sections: true
+   df-print: paged
+   page-layout: full
+   embed-resources: true
+execute: 
+  warning: false
+---
+
+# Code to reproduce results of the manuscript 'Kidney Failure Prediction: Multicenter External Validation of the KFRE Model in Patients with CKD Stages 3-4 in Peru'
+
+## Introduction 
+
+This document presents the code and results of the main analysis shown in the article.
+
+## Setup
+
+```{r}
+#| label: load-packages
+#| include: true
+
+rm(list = ls())
+
+# Use pacman to check whether packages are installed, if not load
+if (!require("pacman")) install.packages("pacman")
+library(pacman)
+
+# Unload all package to begin in a session with only base packages
+pacman::p_unload("all")
+
+# Install packages
+pacman::p_load(
+  here, 
+  skimr, 
+  survival,
+  rms,
+  cmprsk,
+  riskRegression,
+  mstate,
+  pseudo,
+  pec,
+  riskRegression,
+  plotrix,
+  knitr,
+  splines,
+  kableExtra,
+  flextable,
+  gtsummary,
+  boot,
+  tidyverse,
+  rsample,
+  gridExtra,
+  webshot, 
+  patchwork,
+  survival, 
+  cmprsk, 
+  survminer, 
+  ggsci, 
+  cowplot, 
+  scales, 
+  patchwork, 
+  labelled, 
+  glue, 
+  dcurves, 
+  broom, 
+  downlit, 
+  xml2, 
+  gghalves, 
+  devtools, 
+  htmltools, 
+  gghalves, 
+  ggtext, 
+  DiagrammeR, 
+  gt, 
+  janitor, 
+  VIM, 
+  PerformanceAnalytics, 
+  mice, 
+  rms, 
+  naniar, 
+  DescTools
+)
+
+if (!require("impstep")) remotes::install_github("bgravesteijn/impstep", force = TRUE)
+if (!require("smplot2")) devtools::install_github('smin95/smplot2', force = TRUE)
+
+library(impstep)
+```
+#### Funciones
+
+```{r}
+source(here("Code", "source", "kfre_pi.R"))
+source(here("Code", "source", "kfre_pr.R"))
+source(here("Code", "source", "oe_ratio.R"))
+source(here("Code", "source", "calibration_intercept.R"))
+source(here("Code", "source", "calibration_slope.R"))
+source(here("Code", "source", "auc.R"))
+source(here("Code", "source", "validate.mids.R"))
+source(here("Code", "source", "pool.validate.mids.R"))
+source(here("Code", "source", "pool.auc.mids.R"))
+source(here("Code", "source", "recal.risk.basal.R"))
+source(here("Code", "source", "kfre_pr.risk.basal.R"))
+source(here("Code", "source", "recal.risk.coef.R"))
+source(here("Code", "source", "kfre_pr.risk.coef.R"))
+source(here("Code", "source", "kfre_pi.coef.R"))
+source(here("Code", "source", "recal.risk.basal.csh.R"))
+source(here("Code", "source", "kfre_pr.risk.basal.csh.R"))
+source(here("Code", "source", "recal.risk.coef.csh.R"))
+source(here("Code", "source", "kfre_pr.risk.coef.csh.R"))
+source(here("Code", "source", "kfre_pi.coef.csh.R"))
+```
+
+
+### Importar datos
+
+```{r}
+data_impA <- readRDS(here::here("Data", "Tidy", "data_impA.rds")) 
+
+imp.datosA <- complete(data_impA, action = "long", include = TRUE) 
+
+imp.datosA <- imp.datosA |> 
+  filter(.imp < 4) |> 
+  mutate(beta.sum = kfre_pi(imp.datosA), 
+         eventb5y = case_when(
+           eventd5y %in% c(0, 2) ~ 0, 
+           eventd5y %in% c(1)  ~ 1, 
+           TRUE ~ as.numeric(NA)
+         ))
+
+data_impA <- as.mids(imp.datosA)
+```
+
+## Predictive Performance
+
+### Calibration and Discrimination
+
+```{r}
+# Grupo 3a-3b-4 2 anios---------------------------------------------------------
+## Model Original---------------------------------------------------------------
+horizon <- 2
+primary_event <- 1
+
+auc_measure <- validate.mids(data_impA, kfre_pr, auc, "auc", alpha = 0.05, 
+                             horizon = horizon, primary_event = primary_event)
+cal_int_measure <- validate.mids(data_impA, kfre_pr, calibration_intercept, 
+                                 "calibration_intercept", alpha = 0.05, 
+                                 horizon = horizon, primary_event = primary_event)
+cal_slope_measure <- validate.mids(data_impA, kfre_pr, calibration_slope, 
+                                   "calibration_slope", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+oe_ratio_measure <- validate.mids(data_impA, kfre_pr, oe_ratio, 
+                                   "oe_ratio", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+## Average predicted risk
+imp.datosA |> 
+  mutate(pred = kfre_pr(imp.datosA, horizon)) |> 
+  summarise(avg_pred = mean(pred)) |> 
+  pull(avg_pred) -> avg_pred
+
+## Average observed proportion
+avg_obs_imp <- rep(NA, max(imp.datosA$.imp))
+
+for (i in seq_len(max(imp.datosA$.imp))) {
+  datos_filtered <- imp.datosA |> 
+    filter(.imp == i) 
+  
+  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
+  avg_obs <- obj$pstate[, primary_event + 1]
+  avg_obs_imp[i] <- avg_obs
+}
+
+avg_obs <- mean(avg_obs_imp)
+
+oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
+cal_int_res <- pool.validate.mids(cal_int_measure)
+cal_slope_res <- pool.validate.mids(cal_slope_measure)
+auc_res <- pool.validate.mids(auc_measure)
+
+datos_res1 <- data.frame(
+  measures = c("Average predicted risk", "Average observed proportion", 
+               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
+               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
+  estimates = c(100 * avg_pred, 100 * avg_obs, 
+                oe_ratio_res[["pooled"]][["estimate"]], 
+                cal_int_res[["pooled"]][["estimate"]], 
+                cal_slope_res[["pooled"]][["estimate"]], 
+                auc_res[["pooled"]][["estimate"]]), 
+  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
+                cal_int_res[["pooled"]][["ci.lb"]], 
+                cal_slope_res[["pooled"]][["ci.lb"]], 
+                auc_res[["pooled"]][["ci.lb"]]),
+  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
+                cal_int_res[["pooled"]][["ci.ub"]], 
+                cal_slope_res[["pooled"]][["ci.ub"]], 
+                auc_res[["pooled"]][["ci.ub"]])
+) |> 
+  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
+  select(measures, res)
+```
+
+
+```{r}
+## Model Recalibrated 1 - Basal Risk Adjustment using  Cox-----------------------------------------
+auc_measure <- validate.mids(data_impA, kfre_pr.risk.basal, auc, "auc", alpha = 0.05, 
+                             horizon = horizon, primary_event = primary_event)
+```
+
+
+```{r}
+cal_int_measure <- validate.mids(data_impA, kfre_pr.risk.basal, calibration_intercept, 
+                                 "calibration_intercept", alpha = 0.05, 
+                                 horizon = horizon, primary_event = primary_event)
+cal_slope_measure <- validate.mids(data_impA, kfre_pr.risk.basal, calibration_slope, 
+                                   "calibration_slope", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+oe_ratio_measure <- validate.mids(data_impA, kfre_pr.risk.basal, oe_ratio, 
+                                   "oe_ratio", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+## Average predicted risk
+imp.datosA |> 
+  mutate(pred = kfre_pr.risk.basal(imp.datosA, horizon)) |> 
+  summarise(avg_pred = mean(pred)) |> 
+  pull(avg_pred) -> avg_pred
+
+## Average observed proportion
+avg_obs_imp <- rep(NA, max(imp.datosA$.imp))
+
+for (i in seq_len(max(imp.datosA$.imp))) {
+  datos_filtered <- imp.datosA |> 
+    filter(.imp == i) 
+  
+  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
+  avg_obs <- obj$pstate[, primary_event + 1]
+  avg_obs_imp[i] <- avg_obs
+}
+
+avg_obs <- mean(avg_obs_imp)
+
+oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
+cal_int_res <- pool.validate.mids(cal_int_measure)
+cal_slope_res <- pool.validate.mids(cal_slope_measure)
+auc_res <- pool.validate.mids(auc_measure)
+
+datos_res2 <- data.frame(
+  measures = c("Average predicted risk", "Average observed proportion", 
+               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
+               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
+  estimates = c(100 * avg_pred, 100 * avg_obs, 
+                oe_ratio_res[["pooled"]][["estimate"]], 
+                cal_int_res[["pooled"]][["estimate"]], 
+                cal_slope_res[["pooled"]][["estimate"]], 
+                auc_res[["pooled"]][["estimate"]]), 
+  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
+                cal_int_res[["pooled"]][["ci.lb"]], 
+                cal_slope_res[["pooled"]][["ci.lb"]], 
+                auc_res[["pooled"]][["ci.lb"]]),
+  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
+                cal_int_res[["pooled"]][["ci.ub"]], 
+                cal_slope_res[["pooled"]][["ci.ub"]], 
+                auc_res[["pooled"]][["ci.ub"]])
+) |> 
+  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
+  select(measures, res)
+```
+
+
+```{r}
+## Model Recalibrated 2 - Basal Risk and Coefficient Adjustments using  Cox-----------------------------------------
+auc_measure <- validate.mids(data_impA, kfre_pr.risk.coef, auc, "auc", alpha = 0.05, 
+                             horizon = horizon, primary_event = primary_event)
+cal_int_measure <- validate.mids(data_impA, kfre_pr.risk.coef, calibration_intercept, 
+                                 "calibration_intercept", alpha = 0.05, 
+                                 horizon = horizon, primary_event = primary_event)
+cal_slope_measure <- validate.mids(data_impA, kfre_pr.risk.coef, calibration_slope, 
+                                   "calibration_slope", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+oe_ratio_measure <- validate.mids(data_impA, kfre_pr.risk.coef, oe_ratio, 
+                                   "oe_ratio", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+## Average predicted risk
+imp.datosA |> 
+  mutate(pred = kfre_pr.risk.coef(imp.datosA, horizon)) |> 
+  summarise(avg_pred = mean(pred)) |> 
+  pull(avg_pred) -> avg_pred
+
+## Average observed proportion
+avg_obs_imp <- rep(NA, max(imp.datosA$.imp))
+
+for (i in seq_len(max(imp.datosA$.imp))) {
+  datos_filtered <- imp.datosA |> 
+    filter(.imp == i) 
+  
+  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
+  avg_obs <- obj$pstate[, primary_event + 1]
+  avg_obs_imp[i] <- avg_obs
+}
+
+avg_obs <- mean(avg_obs_imp)
+
+oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
+cal_int_res <- pool.validate.mids(cal_int_measure)
+cal_slope_res <- pool.validate.mids(cal_slope_measure)
+auc_res <- pool.validate.mids(auc_measure)
+
+datos_res3 <- data.frame(
+  measures = c("Average predicted risk", "Average observed proportion", 
+               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
+               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
+  estimates = c(100 * avg_pred, 100 * avg_obs, 
+                oe_ratio_res[["pooled"]][["estimate"]], 
+                cal_int_res[["pooled"]][["estimate"]], 
+                cal_slope_res[["pooled"]][["estimate"]], 
+                auc_res[["pooled"]][["estimate"]]), 
+  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
+                cal_int_res[["pooled"]][["ci.lb"]], 
+                cal_slope_res[["pooled"]][["ci.lb"]], 
+                auc_res[["pooled"]][["ci.lb"]]),
+  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
+                cal_int_res[["pooled"]][["ci.ub"]], 
+                cal_slope_res[["pooled"]][["ci.ub"]], 
+                auc_res[["pooled"]][["ci.ub"]])
+) |> 
+  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
+  select(measures, res)
+
+## Model Recalibrated 3 - Basal Risk Adjustment using Cause-Specific Hazard Models-----------------------------------------
+auc_measure <- validate.mids(data_impA, kfre_pr.risk.basal.csh, auc, "auc", alpha = 0.05, 
+                             horizon = horizon, primary_event = primary_event)
+cal_int_measure <- validate.mids(data_impA, kfre_pr.risk.basal.csh, calibration_intercept, 
+                                 "calibration_intercept", alpha = 0.05, 
+                                 horizon = horizon, primary_event = primary_event)
+cal_slope_measure <- validate.mids(data_impA, kfre_pr.risk.basal.csh, calibration_slope, 
+                                   "calibration_slope", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+oe_ratio_measure <- validate.mids(data_impA, kfre_pr.risk.basal.csh, oe_ratio, 
+                                   "oe_ratio", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+## Average predicted risk
+imp.datosA |> 
+  mutate(pred = kfre_pr.risk.basal.csh(imp.datosA, horizon)) |> 
+  summarise(avg_pred = mean(pred)) |> 
+  pull(avg_pred) -> avg_pred
+
+## Average observed proportion
+avg_obs_imp <- rep(NA, max(imp.datosA$.imp))
+
+for (i in seq_len(max(imp.datosA$.imp))) {
+  datos_filtered <- imp.datosA |> 
+    filter(.imp == i) 
+  
+  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
+  avg_obs <- obj$pstate[, primary_event + 1]
+  avg_obs_imp[i] <- avg_obs
+}
+
+avg_obs <- mean(avg_obs_imp)
+
+oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
+cal_int_res <- pool.validate.mids(cal_int_measure)
+cal_slope_res <- pool.validate.mids(cal_slope_measure)
+auc_res <- pool.validate.mids(auc_measure)
+
+datos_res4 <- data.frame(
+  measures = c("Average predicted risk", "Average observed proportion", 
+               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
+               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
+  estimates = c(100 * avg_pred, 100 * avg_obs, 
+                oe_ratio_res[["pooled"]][["estimate"]], 
+                cal_int_res[["pooled"]][["estimate"]], 
+                cal_slope_res[["pooled"]][["estimate"]], 
+                auc_res[["pooled"]][["estimate"]]), 
+  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
+                cal_int_res[["pooled"]][["ci.lb"]], 
+                cal_slope_res[["pooled"]][["ci.lb"]], 
+                auc_res[["pooled"]][["ci.lb"]]),
+  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
+                cal_int_res[["pooled"]][["ci.ub"]], 
+                cal_slope_res[["pooled"]][["ci.ub"]], 
+                auc_res[["pooled"]][["ci.ub"]])
+) |> 
+  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
+  select(measures, res)
+
+## Model Recalibrated 4 - Basal Risk and Coefficient Adjustments using Cause-Specific Hazard Models-----------------------------------------
+auc_measure <- validate.mids(data_impA, kfre_pr.risk.coef.csh, auc, "auc", alpha = 0.05, 
+                             horizon = horizon, primary_event = primary_event)
+cal_int_measure <- validate.mids(data_impA, kfre_pr.risk.coef.csh, calibration_intercept, 
+                                 "calibration_intercept", alpha = 0.05, 
+                                 horizon = horizon, primary_event = primary_event)
+cal_slope_measure <- validate.mids(data_impA, kfre_pr.risk.coef.csh, calibration_slope, 
+                                   "calibration_slope", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+oe_ratio_measure <- validate.mids(data_impA, kfre_pr.risk.coef.csh, oe_ratio, 
+                                   "oe_ratio", alpha = 0.05, 
+                                   horizon = horizon, primary_event = primary_event)
+## Average predicted risk
+imp.datosA |> 
+  mutate(pred = kfre_pr.risk.coef.csh(imp.datosA, horizon)) |> 
+  summarise(avg_pred = mean(pred)) |> 
+  pull(avg_pred) -> avg_pred
+
+## Average observed proportion
+avg_obs_imp <- rep(NA, max(imp.datosA$.imp))
+
+for (i in seq_len(max(imp.datosA$.imp))) {
+  datos_filtered <- imp.datosA |> 
+    filter(.imp == i) 
+  
+  obj <- summary(survfit(Surv(time5y, eventd5ylab) ~ 1, data = datos_filtered ), times = horizon)
+  avg_obs <- obj$pstate[, primary_event + 1]
+  avg_obs_imp[i] <- avg_obs
+}
+
+avg_obs <- mean(avg_obs_imp)
+
+oe_ratio_res <- pool.validate.mids(oe_ratio_measure)
+cal_int_res <- pool.validate.mids(cal_int_measure)
+cal_slope_res <- pool.validate.mids(cal_slope_measure)
+auc_res <- pool.validate.mids(auc_measure)
+
+datos_res5 <- data.frame(
+  measures = c("Average predicted risk", "Average observed proportion", 
+               "O/E ratio (95% CI)", "Calibration intercept (95% CI)", 
+               "Calibration Slope (95% CI)", "C-index up to t-years (95% CI)"),
+  estimates = c(100 * avg_pred, 100 * avg_obs, 
+                oe_ratio_res[["pooled"]][["estimate"]], 
+                cal_int_res[["pooled"]][["estimate"]], 
+                cal_slope_res[["pooled"]][["estimate"]], 
+                auc_res[["pooled"]][["estimate"]]), 
+  ci.lb = c(NA, NA, oe_ratio_res[["pooled"]][["ci.lb"]], 
+                cal_int_res[["pooled"]][["ci.lb"]], 
+                cal_slope_res[["pooled"]][["ci.lb"]], 
+                auc_res[["pooled"]][["ci.lb"]]),
+  ci.ub = c(NA, NA, oe_ratio_res[["pooled"]][["ci.ub"]], 
+                cal_int_res[["pooled"]][["ci.ub"]], 
+                cal_slope_res[["pooled"]][["ci.ub"]], 
+                auc_res[["pooled"]][["ci.ub"]])
+) |> 
+  mutate(res = str_glue("{round(estimates, 2)} ({round(ci.lb, 2)} to {round(ci.ub, 2)})")) |> 
+  select(measures, res)
+```
+
+
+```{r}
+# Tabla final
+table_perf_final <- datos_res1 |> 
+  left_join(datos_res2, by = "measures") |> 
+  left_join(datos_res3, by = "measures") |> 
+  left_join(datos_res4, by = "measures") |> 
+  left_join(datos_res5, by = "measures") |> 
+  mutate(grupo = c(rep("Calibration", 5), "Discrimination")) |> 
+  as_grouped_data(groups = "grupo") |> 
+  flextable::as_flextable(hide_grouplabel = TRUE) |> 
+  set_header_labels(
+    measures = "Validation aspect and performance measure", 
+    res.x = "t = 2 year", 
+    res.y = "t = 5 year", 
+    res.x.x = "t = 2 year", 
+    res.y.y = "t = 5 year" 
+  ) %>% 
+  add_header_row(
+    values = c("Validation aspect and performance measure", "CKD Stages 3a-3b-4", "CKD Stages 3b-4"), 
+    colwidths = c(1, 2, 2)
+  ) %>% 
+  merge_v(j = 1, part = "header") %>% 
+  bold(i = c(1, 7)) %>% 
+  autofit()  %>% 
+  set_caption("Table 2. Performance measures of KFRE in the external dataset of patients with CKD Stages 3a-4 and 3b-4") %>% 
+  theme_booktabs() %>%  
+  bold(bold = TRUE, part = "header") 
+
+table_perf_final %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Imputed_Performance.docx"))
+
+table_perf_final
+```
+
+
+#### Moderate calibration: Calibration curves lowess based on pseudovalues
+
+```{r}
+#| label: loess-pseudo
+
+# Seleccion del grupo: Stages 3-4----
+vdata <- imp.datosA %>% 
+  rename(id = .id, 
+         imp = .imp) |> 
+  mutate(risk2y = kfre_pr(imp.datosA, horizon = 2), 
+         risk5y = kfre_pr(imp.datosA, horizon = 5)) |> 
+  select(imp, id, risk2y, risk5y, time5y, eventd5y, time, eventd) 
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+pred <- as.matrix(vdata$pred)
+
+# Calibration plot (pseudo-obs approach) ----------------------------------
+# First compute riskRegression::Score()
+score_vdata <- Score(
+  list("csh_validation" = pred),
+  formula = Hist(time, eventd) ~ 1,
+  cens.model = "km",
+  data = vdata,
+  conf.int = TRUE,
+  times = horizon,
+  #  metrics = c("auc", "brier"),
+  summary = c("ipa"),
+  cause = primary_event,
+  plots = "calibration"
+)
+
+# Use pseudo-observations calculated by Score() (can alternatively use pseudo::pseudoci)
+pseudos <- data.frame(score_vdata$Calibration$plotframe)
+pseudos <- pseudos[order(pseudos$risk), ]
+
+# Use linear loess (weighted local regression with polynomial degree = 1) smoothing
+smooth_pseudos <- predict(
+  stats::loess(pseudovalue ~ risk, data = pseudos, degree = 1), 
+  se = FALSE
+)
+
+pseudo_vals <- data.frame(
+  obs = smooth_pseudos, 
+  risk = pseudos$risk
+  )
+
+pseudo_vals %>% 
+  ggplot(aes(x = risk, y = obs)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  theme_bw() + 
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions") -> p1
+
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+pred <- as.matrix(vdata$pred)
+
+# Calibration plot (pseudo-obs approach) ----------------------------------
+# First compute riskRegression::Score()
+score_vdata <- Score(
+  list("csh_validation" = pred),
+  formula = Hist(time, eventd) ~ 1,
+  cens.model = "km",
+  data = vdata,
+  conf.int = TRUE,
+  times = horizon,
+  summary = c("ipa"),
+  cause = primary_event,
+  plots = "calibration"
+)
+
+# Use pseudo-observations calculated by Score() (can alternatively use pseudo::pseudoci)
+pseudos <- data.frame(score_vdata$Calibration$plotframe)
+pseudos <- pseudos[order(pseudos$risk), ]
+
+# Use linear loess (weighted local regression with polynomial degree = 1) smoothing
+smooth_pseudos <- predict(
+  stats::loess(pseudovalue ~ risk, data = pseudos, degree = 1), 
+  se = FALSE
+)
+
+pseudo_vals <- data.frame(
+  obs = smooth_pseudos, 
+  risk = pseudos$risk
+  )
+
+pseudo_vals %>% 
+  ggplot(aes(x = risk, y = obs)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions") + 
+  theme_bw() -> p2
+
+
+# Seleccion del grupo: Stages 3b-4----
+vdata <- imp.datosB %>% 
+  rename(id = .id, 
+         imp = .imp) |> 
+  mutate(risk2y = kfre_pr(imp.datosB, horizon = 2), 
+         risk5y = kfre_pr(imp.datosB, horizon = 5)) |> 
+  select(imp, id, risk2y, risk5y, time5y, eventd5y, time, eventd) 
+
+
+primary_event <- 1
+
+# A 2 años----
+horizon <- 2
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk2y
+pred <- as.matrix(vdata$pred)
+
+# Calibration plot (pseudo-obs approach) ----------------------------------
+# First compute riskRegression::Score()
+score_vdata <- Score(
+  list("csh_validation" = pred),
+  formula = Hist(time, eventd) ~ 1,
+  cens.model = "km",
+  data = vdata,
+  conf.int = TRUE,
+  times = horizon,
+  summary = c("ipa"),
+  cause = primary_event,
+  plots = "calibration"
+)
+
+# Use pseudo-observations calculated by Score() (can alternatively use pseudo::pseudoci)
+pseudos <- data.frame(score_vdata$Calibration$plotframe)
+pseudos <- pseudos[order(pseudos$risk), ]
+
+# Use linear loess (weighted local regression with polynomial degree = 1) smoothing
+smooth_pseudos <- predict(
+  stats::loess(pseudovalue ~ risk, data = pseudos, degree = 1), 
+  se = FALSE
+)
+
+pseudo_vals <- data.frame(
+  obs = smooth_pseudos, 
+  risk = pseudos$risk
+  )
+
+pseudo_vals %>% 
+  ggplot(aes(x = risk, y = obs)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  theme_bw() + 
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions") -> p3
+
+# A 5 años----
+horizon <- 5
+
+# Add estimated risk and complementary log-log of it to dataset
+vdata$pred <- vdata$risk5y
+pred <- as.matrix(vdata$pred)
+
+# Calibration plot (pseudo-obs approach) ----------------------------------
+# First compute riskRegression::Score()
+score_vdata <- Score(
+  list("csh_validation" = pred),
+  formula = Hist(time, eventd) ~ 1,
+  cens.model = "km",
+  data = vdata,
+  conf.int = TRUE,
+  times = horizon,
+  summary = c("ipa"),
+  cause = primary_event,
+  plots = "calibration"
+)
+
+# Use pseudo-observations calculated by Score() (can alternatively use pseudo::pseudoci)
+pseudos <- data.frame(score_vdata$Calibration$plotframe)
+pseudos <- pseudos[order(pseudos$risk), ]
+
+# Use linear loess (weighted local regression with polynomial degree = 1) smoothing
+smooth_pseudos <- predict(
+  stats::loess(pseudovalue ~ risk, data = pseudos, degree = 1), 
+  se = FALSE
+)
+
+pseudo_vals <- data.frame(
+  obs = smooth_pseudos, 
+  risk = pseudos$risk
+  )
+
+pseudo_vals %>% 
+  ggplot(aes(x = risk, y = obs)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  geom_line() + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +   
+  xlab("Predicted risks") + 
+  ylab("Observed outcome proportions") + 
+  theme_bw() -> p4
+
+
+p1a <- p1 + 
+  labs(title = "CKD Stages 3a-3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+p2a <- p2 + labs(title = "CKD Stages 3a-3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+p3a <- p3 + labs(title = "CKD Stages 3b-4\n(2 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+p4a <- p4 + labs(title = "CKD Stages 3b-4\n(5 year KFRE)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+(p1a | p2a) / (p3a | p4a) + plot_annotation(tag_levels = 'A') -> plot_calibration
+
+ggsave(filename = "Plot_Calibration_imputed.png", 
+       device = "png", 
+       plot = plot_calibration, 
+       path = here("Figures"), 
+       scale = 2, 
+       width = 2100, 
+       height = 2100,
+       units = "px", 
+       dpi = 300)
+```
+
+### Fig 3
+
+```{r}
+#| label: fig-loess-pseudo-ggpplot
+#| fig.width: 7
+#| fig.height: 7
+#| fig.align: center
+#| fig-cap: "Calibration curves for each group and prediction horizon"
+knitr::include_graphics(here("Figures", "Plot_Calibration_imputed.png"))
+```
+
+
+## Supplementary tables
+
+### Table S1 {#sec-tableS1}
+
+Ecuaciones originales
+
+```{r}
+table_kfre <- data.frame(
+  pred = c("2-years", "5-years"), 
+  eq = c("$1-{0.9832}^{e^{(-0.2201\times(\frac{age}{10}-7.036)+0.2467\times(male-0.5642)-0.5567\times(\frac{eGFR}{5}-7.222)+0.4510\times(log{(ACR)}-5.137))}}$", 
+         "$1-{0.9365}^{e^{(-0.2201\times(\frac{age}{10}-7.036)+0.2467\times(male-0.5642)-0.5567\times(\frac{eGFR}{5}-7.222)+0.4510\times(log{(ACR)}-5.137))}}$")
+)
+```
+
+
+```{r}
+#| results: asis
+knitr::kable(table_kfre, escape = TRUE, 
+             col.names = c("Prediction horizons", 
+                           "Original regional equation calibrated for predicted risk of kidney failure"), 
+             caption = "Table S1. KFRE equations externally validated by the study")
+```
+
+
+### Table S2 {#sec-tableS2}
+
+```{r}
+table_coding <- data.frame(
+  Variable = c("age", "male", "eGFR_ckdepi", "acr"), 
+  Coding = c("integer number that indicates the age in completed years", 
+             "1 = male; 0 = female", 
+             "estimated glomerular filtration rate obtained by CKD-EPI formula in $ml/min/1.73m^2$", 
+             "albumin-to-creatinine ratio in mg/g")
+)
+```
+
+
+```{r}
+#| results: asis
+knitr::kable(table_coding, escape = TRUE, 
+             caption = "Table S2. Coding of variables")
+```
+
+## Ticket de Reprocubilidad
+
+```{r}
+#| label: repro_ticket
+#| column: page
+#| echo: true
+sessionInfo()
+```
+
