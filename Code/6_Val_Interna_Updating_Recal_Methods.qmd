@@ -173,7 +173,6 @@ recal_loads |>
 
 ```{r}
 n_cores <- detectCores()
-n_cores <- 3
 
 # Evaluate futures in parallel - max of two workers to avoid hogging resources
 future::plan("multisession", workers = n_cores)
