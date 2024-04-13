@@ -1,0 +1,721 @@
+---
+title: "2B Codigo Reproducible de Flujograma de Inclusión - Recalibración de modelo KFRE para predecir falla renal en asegurados de EsSalud"
+author: "Percy Soto Becerra"
+format: 
+  html: 
+   toc: true
+   number-sections: true
+   df-print: paged
+   page-layout: full
+   embed-resources: true
+---
+
+## Setup
+
+```{r}
+#| label: load-packages
+#| include: true
+
+rm(list = ls())
+
+# Use pacman to check whether packages are installed, if not load
+if (!require("pacman")) install.packages("pacman")
+library(pacman)
+
+# Unload all package to begin in a session with only base packages
+pacman::p_unload("all")
+
+# Install packages
+pacman::p_load(
+  here, 
+  skimr, 
+  survival,
+  rms,
+  cmprsk,
+  riskRegression,
+  mstate,
+  pseudo,
+  pec,
+  riskRegression,
+  plotrix,
+  knitr,
+  splines,
+  kableExtra,
+  flextable,
+  gtsummary,
+  boot,
+  tidyverse,
+  rsample,
+  gridExtra,
+  webshot, 
+  patchwork,
+  survival, 
+  cmprsk, 
+  survminer, 
+  ggsci, 
+  cowplot, 
+  scales, 
+  patchwork, 
+  labelled, 
+  glue, 
+  dcurves, 
+  broom, 
+  downlit, 
+  xml2, 
+  gghalves, 
+  devtools, 
+  htmltools, 
+  gghalves, 
+  ggtext, 
+  DiagrammeR, 
+  gt, 
+  janitor, 
+  VIM, 
+  PerformanceAnalytics, 
+  mice, 
+  rms, 
+  naniar, 
+  DescTools, 
+  gtools, 
+  ggExtra, 
+  furrr, 
+  future, 
+  tictoc, 
+  parallel,
+  ggmice
+)
+
+if (!require("impstep")) remotes::install_github("bgravesteijn/impstep", force = TRUE)
+if (!require("smplot2")) devtools::install_github('smin95/smplot2', force = TRUE)
+# You will need Rtools to install packages from Github on Windows
+# `devtools` with throw an informative error if Rtools is not found
+# if (!"devtools" %in% installed.packages()) install.packages("devtools")
+# devtools::install_github("jesse-smith/futuremice")
+
+library(impstep)
+
+## Revisar:; https://amices.org/ggmice/index.html
+```
+
+## Cargar datos 
+
+Los datos completos se muestran a continuación, luego de seleccionar a las variables con las que trabajaremos:
+
+```{r}
+# Import data
+data <- readRDS(here::here("Data", "Tidy", "datos_total_integrados.rds")) |> 
+  select(cas, sex, age, hta, dm, crea, 
+         ckd_stage, ckd_stage2, 
+         eGFR_ckdepi, acr, urine_album, 
+         urine_crea, time5y, eventd5y, 
+         grf_cat, acr_cat, ckd_class,
+         death2y, eventd2ylab, death5y, 
+         eventd5ylab, eventd, time) 
+
+data |> 
+  glimpse()
+```
+
+## Análisis inicial de datos 
+
+Vamos a identificar datos de tiempo no plausibles. Se aprecia que todos los datos de tiempo que no son plausibles pertenecen a individuos que hicieron **falla renal**, y esta implausibilidad se debe a tiempos hasta eventos negativos. Respecto a los datos perdidos, vemos que hay datos perdidos de tiempo tanto en individuos vivos que no reportaron falla renal como en individuos que reportaron falla renal. Como era de esperarse, no hubo datos perdidos de tiempo en individuos que fallecieron, dado que estos datos provienen de la oficina de asegurados que cruza datos con RENIEC. Asimismo, un grupo importante de individuos tuvo datos perdidos de tiempo y de evento (no se sabe si desarrollaron o no falla renal o muerte).
+
+```{r}
+data |> 
+  mutate(eventdf = as.character(eventd),
+         eventdf = case_match(eventdf, 
+                              "0" ~ "Vivo y sin falla renal", 
+                              "1" ~ "Falla renal", 
+                              "2" ~ "Muerto sin falla renal", 
+                              NA ~ "Dato perdido")) |> 
+  bind_rows(data |> mutate(eventdf = as.character("Total"))) |> 
+  mutate(eventdf = factor(eventdf, 
+                          levels = c("Vivo y sin falla renal", 
+                                     "Falla renal", 
+                                     "Muerto sin falla renal", 
+                                     "Total",
+                                     "Dato perdido"))) |> 
+  count(time, eventdf) |> 
+  mutate(time = case_when(is.na(time) ~ 15, 
+                          TRUE ~ time), 
+         time_tipo = case_when(time > 0 & time < 15 ~ "Valor Plausible", 
+                               time <= 0 ~ "Valor Implausible", 
+                               time == 15 ~ "Dato perdido", 
+                               TRUE ~ as.character(NA))) |> 
+  ggplot(aes(x = time, y = n, color = time_tipo)) +
+  geom_point(shape = 21, alpha = 0.5) + 
+  geom_vline(xintercept = 0.1, linetype = 2, color = "red") +
+  scale_y_continuous(trans = "log10") + 
+  labs(color = "Tipo de dato") + 
+  facet_wrap(. ~ eventdf) + 
+  theme_bw() -> p_tiempo_perdido
+
+ggsave(filename = "p_tiempo_perdido.png", 
+       plot = p_tiempo_perdido, 
+       device = "png", 
+       path = here("Figures", "Imputation_Diagnostic"), 
+       scale = 2.5, 
+       width = 9,
+       height = 9, 
+       units = "cm", 
+       dpi = 600, 
+       bg = "white") 
+```
+
+```{r}
+#| echo: false
+knitr::include_graphics(here("Figures", "Imputation_Diagnostic", "p_tiempo_perdido.png"))
+```
+
+Respecto a la distribución de estos datos perdidos, tenemos lo siguiente:
+
+```{r}
+data |> 
+  mutate(eventdf = as.character(eventd),
+         eventdf = case_match(eventdf, 
+                              "0" ~ "Vivo y sin falla renal", 
+                              "1" ~ "Falla renal", 
+                              "2" ~ "Muerto sin falla renal", 
+                              NA ~ "Dato perdido"), 
+         eventdf = factor(eventdf, 
+                          levels = c("Vivo y sin falla renal", 
+                                     "Falla renal", 
+                                     "Muerto sin falla renal", 
+                                     "Total",
+                                     "Dato perdido")), 
+         time_tipo = case_when(time > 0 & time < 15 ~ "Valor Plausible", 
+                               time <= 0 ~ "Valor Implausible", 
+                               is.na(time) ~ "Dato perdido", 
+                               TRUE ~ as.character(NA))) |> 
+  tabyl(time_tipo) |> 
+  adorn_pct_formatting() -> tabla_tiempo_perdidos
+
+tabla_tiempo_perdidos |> 
+  kbl()
+```
+
+Se aprecia que el porcentaje de datos perdidos de tiempo es de `r tabla_tiempo_perdidos |> filter(time_tipo == "Dato perdido") |> pull(percent)`  (n = `r tabla_tiempo_perdidos |> filter(time_tipo == "Dato perdido") |> pull(n)`). Asimismo, los valores de tiempo implausible son ínfimos y representan el `r tabla_tiempo_perdidos |> filter(time_tipo == "Valor Implausible") |> pull(percent)`  (n = `r tabla_tiempo_perdidos |> filter(time_tipo == "Valor Implausible") |> pull(n)`).
+
+## Seleccion de individuos para el análisis
+
+El total de individuos elegibles es el siguiente:
+
+```{r}
+data_eleg <- data |> 
+  filter(age >= 18, ckd_stage == "Stages 3-4")
+
+nrow(data_eleg )
+```
+
+El número de individuos menores de 18 años es el siguiente:
+
+```{r}
+data_noeleg_age_menos18 <- data |> 
+  filter(age < 18)
+
+nrow(data_noeleg_age_menos18)
+```
+El número de individuos con datos perdidos en edad es el siguiente:
+
+```{r}
+data_noeleg_age_na <- data |> 
+  filter(is.na(age))
+
+nrow(data_noeleg_age_na)
+```
+
+El número de individuos con diagnostico de CKD  diferete a estadio 3a-3:
+
+```{r}
+data_noeleg_ckd12 <- data |> 
+  filter(ckd_stage == "Stages 1-2 y 5", eGFR_ckdepi >= 60)
+
+nrow(data_noeleg_ckd12)
+```
+```{r}
+data_noeleg_ckd5 <- data |> 
+  filter(ckd_stage == "Stages 1-2 y 5", eGFR_ckdepi < 15)
+
+nrow(data_noeleg_ckd5)
+```
+
+El número de individuos con datos perdidos en el diagnostico de CKD :
+
+```{r}
+data_noeleg_ckd_na <- data |> 
+  filter(is.na(ckd_stage))
+
+nrow(data_noeleg_ckd_na)
+```
+
+El numero de individuos con datos no elegibles de edad o ckd stages es:
+
+```{r}
+data_noeleg_ckd_age <- data |> 
+  filter(ckd_stage == "Stages 1-2 y 5" | age < 18)
+
+nrow(data_noeleg_ckd_age)
+```
+
+El numero de individuos con datos perdidos de edad o perdidos en CKD stages: 
+
+```{r}
+data_noeleg_ckd_age_na <- data |> 
+  filter(is.na(ckd_stage) | is.na(age))
+
+nrow(data_noeleg_ckd_age_na)
+```
+
+El numero de individuos potencialmente elgibles por tener edad o CKD stages en el rango o tener datos perdidos
+
+```{r}
+data_eleg_potent <- data |> 
+  filter((age >= 18 | is.na(age)) & (ckd_stage == "Stages 3-4" | is.na(ckd_stage)))
+
+nrow(data_eleg_potent)
+```
+El numero individuos incluidos 3a-4:
+
+```{r}
+data_includ <- data_eleg |> 
+  filter(time > 0, !is.na(eventd))
+
+nrow(data_includ)
+```
+
+El numero individuos incluidos 3b-4:
+
+```{r}
+data_includ2 <- data_includ |> 
+  filter(ckd_stage2 == "Stages 3b-4")
+
+nrow(data_includ2)
+```
+
+
+Los datos excluidos  por datos implausibles o perdidos por tiempo son los siguientes
+
+```{r}
+datos_exclud_time_implau <- data_eleg |> 
+  filter(time <= 0)
+
+nrow(datos_exclud_time_implau)
+```
+
+Los datos excluidos por datos perdidos en tiempo son los siguientes:
+
+```{r}
+datos_exclud_time_na <- data_eleg |> 
+  filter(is.na(time))
+
+nrow(datos_exclud_time_na)
+``` 
+
+Los datos excluidos por datos perdidos en el status del desenlace:
+
+```{r}
+datos_exclud_eventd_na <- data_eleg |> 
+  filter(is.na(eventd))
+
+nrow(datos_exclud_eventd_na)
+``` 
+
+Los datos excluidos por datos perdidos en el status del desenlace/tiempo o tiempo implausible:
+
+```{r}
+datos_exclud_time_eventd <- data_eleg |> 
+  filter(is.na(eventd) | is.na(time) | time <= 0)
+
+nrow(datos_exclud_time_eventd)
+``` 
+
+## Flujograma de selección / inclusión de participantes en inglés
+
+```{r}
+# Create grid of 100 x 100----
+data_flow <- tibble(x = 1:100, y = 1:100)
+
+data_flow  %>% 
+  ggplot(aes(x, y)) + 
+  scale_x_continuous(minor_breaks = seq(1, 100, 1)) + 
+  scale_y_continuous(minor_breaks = seq(1, 100, 1)) + 
+  theme_linedraw() -> p
+
+# Create boxes----
+# 
+
+box_xmin <- 33 - 20
+box_xmax <- 75 - 20
+box_ymin <- 94
+box_ymax <- 99
+box_size <- 0.25
+
+text_param <- function(box_min, box_max) {
+  mean(c(box_min, box_max))
+}
+
+text_size <- 2
+
+
+p + 
+  # Col 0----
+  ## Level 1----
+  geom_rect(xmin = box_xmin, xmax = box_xmax, 
+            ymin = box_ymin - 1, ymax = box_ymax + 1, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin, box_xmax), 
+           y = text_param(box_ymin - 1, box_ymax + 1), 
+           label = str_glue('Total patients in VISARE database\n(n = {nrow(data)})'), 
+           size = text_size ) + 
+  ## Level 1.5----
+  geom_rect(xmin = box_xmin, xmax = box_xmax, 
+            ymin = box_ymin - 27 - 2, ymax = box_ymax - 27 + 2, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin, box_xmax), 
+           y = text_param(box_ymin - 27, box_ymax - 27), 
+           label = str_glue('Total patients potentially elegible\nwith CKD G3a-G4 and ≥ 18 years old\n(n = {nrow(data_eleg_potent)})'), 
+           size = text_size ) + 
+  ## Level 2----
+  geom_rect(xmin = box_xmin, xmax = box_xmax, 
+            ymin = box_ymin - 50 - 1, ymax = box_ymax - 50 + 1, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin, box_xmax), 
+           y = text_param(box_ymin - 50 - 1, box_ymax - 50 + 1), 
+           label = str_glue('Total patients included in the study\n(n = {nrow(data_eleg)})'), 
+           size = text_size ) +   
+  # Col -1----
+  geom_rect(xmin = box_xmin - 13, xmax = box_xmax - 27, 
+            ymin = box_ymin - 81, ymax = box_ymax - 79, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin - 13, box_xmax - 27), 
+           y = text_param(box_ymin - 81, box_ymax - 79), 
+           label = str_glue('Patients with CKD G3a-G4\n(n = {nrow(data_includ)})'), 
+           size = text_size ) + 
+  # Col +1----
+  ## Level 1----
+  geom_rect(xmin = box_xmin + 23, xmax = box_xmax + 47, 
+            ymin = box_ymin - 19 + 2.5, ymax = box_ymax - 12 + 2.5, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin + 23, box_xmax + 47), 
+           y = text_param(box_ymin - 19 + 2.5, box_ymax - 12 + 2.5), 
+           label = str_glue(paste0('Not elegible by age < 18 or CKD in other stages (n = {nrow(data_noeleg_ckd_age)})\n',
+                                   '{nrow(data_noeleg_age_menos18)} were less than 18 years old\n', 
+                                   '{nrow(data_noeleg_ckd12)} had normal or mildly reduction of eGFR (CKD Stage G1 or G2) \n', 
+                                   '{nrow(data_noeleg_ckd5)} had kidney failure (CKD stages G5)\n')), 
+           size = text_size )  + 
+  ## Level 1.5----
+  geom_rect(xmin = box_xmin + 23, xmax = box_xmax + 47, 
+            ymin = box_ymin - 19 - 25 + 1.5, ymax = box_ymax - 12 - 25 + 1.5, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin + 23, box_xmax + 47), 
+           y = text_param(box_ymin - 19 - 25 + 1.5, box_ymax - 12 - 25 + 1.5), 
+           label = str_glue(paste0('Excluded by missing data in selection criteria (n = {nrow(data_noeleg_ckd_age_na)} [{round(100 * nrow(data_noeleg_ckd_age_na)/nrow(data_eleg), 1)}%])\n',
+                                   '{nrow(data_noeleg_age_na)} ({round(100 * nrow(data_noeleg_age_na)/nrow(data_eleg), 1)}%) lack of data in age\n', 
+                                   '{nrow(data_noeleg_ckd_na)} ({round(100 * nrow(data_noeleg_ckd_na)/nrow(data_eleg), 1)}%) lack of data in eGFR to define CKD stages\n')), 
+           size = text_size )  + 
+  ## Level 2----
+  geom_rect(xmin = box_xmin + 23, xmax = box_xmax + 47, 
+            ymin = box_ymin - 19 - 45 - 2, ymax = box_ymax - 12 - 45 - 2, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin + 23, box_xmax + 47), 
+           y = text_param(box_ymin - 19 - 45 - 2, box_ymax - 12 - 45 - 2), 
+           label = str_glue(paste0('Excluded by missing/implausible data in outcome (n = {nrow(datos_exclud_time_eventd)} [{round(100 * nrow(datos_exclud_time_eventd)/nrow(data_eleg), 1)}%])\n', 
+                                   '{nrow(datos_exclud_eventd_na)} ({round(100 * nrow(datos_exclud_eventd_na)/nrow(data_eleg), 1)}%) lack of data in outcome status and time\n', 
+                                   '{nrow(datos_exclud_time_implau)} ({round(100 * nrow(datos_exclud_time_implau)/nrow(data_eleg), 1)}%) had negative or zero time-to-event values')), 
+           size = text_size )  + 
+  ## Level 3----
+  geom_rect(xmin = box_xmin + 27, xmax = box_xmax + 13, 
+            ymin = box_ymin - 81 , ymax = box_ymax - 79, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin + 27, box_xmax + 13), 
+           y = text_param(box_ymin - 81, box_ymax - 79), 
+           label = str_glue('Patients with CKD G3b-G4\n(n = {nrow(data_includ2)})'), 
+           size = text_size )  + 
+  # vertical arrow
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = text_param(box_xmin, box_xmax), 
+               y = 93, yend = 74, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt",
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) +  
+    # vertical arrow
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = text_param(box_xmin, box_xmax), 
+               y = 65, yend = 50, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt",
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) +  
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = text_param(box_xmin, box_xmax), 
+               y =43, yend = 25, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt") + 
+  # horizontal arrow 1-->
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = box_xmin + 23, 
+               y = text_param(box_ymin - 19 + 2, box_ymax - 12 + 2), yend = text_param(box_ymin - 19 + 2, box_ymax - 12 + 2), 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt", 
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  # horizontal arrow 2-->
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = box_xmin + 23, 
+               y = text_param(box_ymin - 19 - 45, box_ymax - 12 - 45), yend = text_param(box_ymin - 19 - 45, box_ymax - 12 - 45), 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt", 
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  # horizontal arrow 2-->
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = box_xmin + 23, 
+               y = text_param(box_ymin - 19 - 25 + 1, box_ymax - 12 - 25 + 1), yend = text_param(box_ymin - 19 - 25 + 1, box_ymax - 12 - 25 + 1), 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt", 
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  # horizontal segment --
+  geom_segment(x = text_param(box_xmin - 13, box_xmax - 27), xend = text_param(box_xmin + 27, box_xmax + 13), 
+               y = 25, yend = 25, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt") + 
+  # vertical arrow -->
+  geom_segment(x = text_param(box_xmin - 13, box_xmax - 27), xend = text_param(box_xmin - 13, box_xmax - 27), 
+               y = 25, yend = box_ymax - 79, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt", 
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  # vertical arrow -->
+  geom_segment(x = text_param(box_xmin + 27, box_xmax + 13), xend = text_param(box_xmin + 27, box_xmax + 13), 
+               y = 25, yend = box_ymax - 79, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt", 
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  theme_void() +
+  theme(plot.background = element_rect(fill = "white")) -> plot_flowchart
+
+ggsave(filename = "plot_flowchart.png", 
+       plot = plot_flowchart, 
+       device = "png", 
+       path = here("Figures"), 
+       scale = 1, 
+       width = 12, 
+       height = 12, 
+       units = "cm", 
+       dpi = 600)
+```
+
+```{r}
+knitr::include_graphics(here("Figures", "plot_flowchart.png"))
+```
+
+## Flujograma de selección / inclusión de participantes en español
+
+```{r}
+# Create grid of 100 x 100----
+data_flow <- tibble(x = 1:100, y = 1:100)
+
+data_flow  %>% 
+  ggplot(aes(x, y)) + 
+  scale_x_continuous(minor_breaks = seq(1, 100, 1)) + 
+  scale_y_continuous(minor_breaks = seq(1, 100, 1)) + 
+  theme_linedraw() -> p
+
+# Create boxes----
+# 
+
+box_xmin <- 33 - 20
+box_xmax <- 75 - 20
+box_ymin <- 94
+box_ymax <- 99
+box_size <- 0.25
+
+text_param <- function(box_min, box_max) {
+  mean(c(box_min, box_max))
+}
+
+text_size <- 2
+
+
+p + 
+  # Col 0----
+  ## Level 1----
+  geom_rect(xmin = box_xmin, xmax = box_xmax, 
+            ymin = box_ymin - 1, ymax = box_ymax + 1, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin, box_xmax), 
+           y = text_param(box_ymin - 1, box_ymax + 1), 
+           label = str_glue('Total de pacientes en base de datos de VISARE\n(n = {nrow(data)})'), 
+           size = text_size ) + 
+  ## Level 1.5----
+  geom_rect(xmin = box_xmin, xmax = box_xmax, 
+            ymin = box_ymin - 27 - 2, ymax = box_ymax - 27 + 2, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin, box_xmax), 
+           y = text_param(box_ymin - 27, box_ymax - 27), 
+           label = str_glue('Total de pacientes potencialmente elegibles\ncon ERC G3a-G4 y ≥ 18 años\n(n = {nrow(data_eleg_potent)})'), 
+           size = text_size ) + 
+  ## Level 2----
+  geom_rect(xmin = box_xmin, xmax = box_xmax, 
+            ymin = box_ymin - 50 - 1, ymax = box_ymax - 50 + 1, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin, box_xmax), 
+           y = text_param(box_ymin - 50 - 1, box_ymax - 50 + 1), 
+           label = str_glue('Total de pacientes incluidos en estudio\n(n = {nrow(data_eleg)})'), 
+           size = text_size ) +   
+  # Col -1----
+  geom_rect(xmin = box_xmin, xmax = box_xmax, 
+            ymin = box_ymin - 81, ymax = box_ymax - 79, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin, box_xmax), 
+           y = text_param(box_ymin - 81, box_ymax - 79), 
+           label = str_glue('Pacientes con ERC G3a-G4\n(n = {nrow(data_includ)})'), 
+           size = text_size ) + 
+  # Col +1----
+  ## Level 1----
+  geom_rect(xmin = box_xmin + 23, xmax = box_xmax + 47, 
+            ymin = box_ymin - 19 + 2.5, ymax = box_ymax - 12 + 2.5, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin + 23, box_xmax + 47), 
+           y = text_param(box_ymin - 19 + 2.5, box_ymax - 12 + 2.5), 
+           label = str_glue(paste0('No elegible por edad < 18 o ERC en otros estadios (n = {nrow(data_noeleg_ckd_age)})\n',
+                                   '{nrow(data_noeleg_age_menos18)} tuvieron < 18 años\n', 
+                                   '{nrow(data_noeleg_ckd12)} con TFGe normal o ligeramente bajos (ERC G1 or G2) \n', 
+                                   '{nrow(data_noeleg_ckd5)} tuvieron falla renal (Estadios G5)\n')), 
+           size = text_size )  + 
+  ## Level 1.5----
+  geom_rect(xmin = box_xmin + 23, xmax = box_xmax + 47, 
+            ymin = box_ymin - 19 - 25 + 1.5, ymax = box_ymax - 12 - 25 + 1.5, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin + 23, box_xmax + 47), 
+           y = text_param(box_ymin - 19 - 25 + 1.5, box_ymax - 12 - 25 + 1.5), 
+           label = str_glue(paste0('Excluidos por datos perdidos en criterios de selección (n = {nrow(data_noeleg_ckd_age_na)} [{round(100 * nrow(data_noeleg_ckd_age_na)/nrow(data_eleg), 1)}%])\n',
+                                   '{nrow(data_noeleg_age_na)} ({round(100 * nrow(data_noeleg_age_na)/nrow(data_eleg), 1)}%) sin datos de fecha de evaluación en VISARE\n', 
+                                   '{nrow(data_noeleg_ckd_na)} ({round(100 * nrow(data_noeleg_ckd_na)/nrow(data_eleg), 1)}%) sin datos de TFGe para definir estadios de ERC\n')), 
+           size = text_size )  + 
+  ## Level 2----
+  geom_rect(xmin = box_xmin + 23, xmax = box_xmax + 47, 
+            ymin = box_ymin - 19 - 45 - 2, ymax = box_ymax - 12 - 45 - 2, 
+            color = "black", fill = "white", 
+            size = box_size) + 
+  annotate('text', 
+           x = text_param(box_xmin + 23, box_xmax + 47), 
+           y = text_param(box_ymin - 19 - 45 - 2, box_ymax - 12 - 45 - 2), 
+           label = str_glue(paste0('Excluidos por datos perdidos/implausibles en el desenlace (n = {nrow(datos_exclud_time_eventd)} [{round(100 * nrow(datos_exclud_time_eventd)/nrow(data_eleg), 1)}%])\n', 
+                                   '{nrow(datos_exclud_eventd_na)} ({round(100 * nrow(datos_exclud_eventd_na)/nrow(data_eleg), 1)}%) sin datos en desenlace tiempo a evento\n', 
+                                   '{nrow(datos_exclud_time_implau)} ({round(100 * nrow(datos_exclud_time_implau)/nrow(data_eleg), 1)}%) con tiempos a evento implausibles (negativos) o irrelevantes (cero)')), 
+           size = text_size )  + 
+  # vertical arrow
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = text_param(box_xmin, box_xmax), 
+               y = 93, yend = 74, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt",
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) +  
+    # vertical arrow
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = text_param(box_xmin, box_xmax), 
+               y = 65, yend = 50, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt",
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) +  
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = text_param(box_xmin, box_xmax), 
+               y =43, yend = 25, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt") + 
+  # horizontal arrow 1-->
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = box_xmin + 23, 
+               y = text_param(box_ymin - 19 + 2, box_ymax - 12 + 2), yend = text_param(box_ymin - 19 + 2, box_ymax - 12 + 2), 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt", 
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  # horizontal arrow 2-->
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = box_xmin + 23, 
+               y = text_param(box_ymin - 19 - 45, box_ymax - 12 - 45), yend = text_param(box_ymin - 19 - 45, box_ymax - 12 - 45), 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt", 
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  # horizontal arrow 2-->
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = box_xmin + 23, 
+               y = text_param(box_ymin - 19 - 25 + 1, box_ymax - 12 - 25 + 1), yend = text_param(box_ymin - 19 - 25 + 1, box_ymax - 12 - 25 + 1), 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt", 
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  # # horizontal segment --
+  # geom_segment(x = text_param(box_xmin - 13, box_xmax - 27), xend = text_param(box_xmin + 27, box_xmax + 13), 
+  #              y = 25, yend = 25, 
+  #              size = 0.15, 
+  #              linejoin = "mitre", 
+  #              lineend = "butt") + 
+  # vertical arrow -->
+  geom_segment(x = text_param(box_xmin, box_xmax), xend = text_param(box_xmin, box_xmax), 
+               y = 25, yend = box_ymax - 79, 
+               size = 0.15, 
+               linejoin = "mitre", 
+               lineend = "butt", 
+               arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  # # vertical arrow -->
+  # geom_segment(x = text_param(box_xmin + 27, box_xmax + 13), xend = text_param(box_xmin + 27, box_xmax + 13), 
+  #              y = 25, yend = box_ymax - 79, 
+  #              size = 0.15, 
+  #              linejoin = "mitre", 
+  #              lineend = "butt", 
+  #              arrow = arrow(length = unit(1, "mm"), type = "closed")) + 
+  theme_void() +
+  theme(plot.background = element_rect(fill = "white")) -> plot_flowchart
+
+ggsave(filename = "plot_flowchart_spanish.png", 
+       plot = plot_flowchart, 
+       device = "png", 
+       path = here("Figures"), 
+       scale = 1, 
+       width = 12, 
+       height = 12, 
+       units = "cm", 
+       dpi = 600)
+```
+
+```{r}
+knitr::include_graphics(here("Figures", "plot_flowchart_spanish.png"))
+```
+
+## Ticket de Reprocubilidad
+
+```{r}
+#| label: repro_ticket
+#| column: page
+#| echo: true
+sessionInfo()
+```
