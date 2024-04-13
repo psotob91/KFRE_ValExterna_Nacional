@@ -231,6 +231,44 @@ source(here("Code", "source", "print_equation.R"))
 library(QHScrnomo)
 ```
 
+```{r}
+# Register the data set
+dd <- datadist(imp.datosA)
+options(datadist = "dd")
+```
+```{r}
+fit_f <- cph(Surv(time, eventd == 1) ~ age_c + male_c + eGFR_c + log_acr_c, 
+               data = imp.datosA, 
+             x = TRUE, 
+             y = TRUE, 
+             surv = TRUE, 
+             time.inc = 5)
+
+fit_f
+```
+
+```{r}
+fit.crr <- crr.fit(fit_f, cencode = 0, failcode = 1)
+fit.crr
+```
+
+```{r}
+summary(fit.crr)
+```
+
+```{r}
+sas.cmprsk(fit.crr, time = 2)
+```
+
+```{r}
+data_st0 <- data.frame(age_c = 0, 
+                       male_c = 0, 
+                       eGFR_c = 0, 
+                       log_acr_c = 0)
+
+predict(fit.crr, time = 2, newdata = data_st0)
+predict(fit.crr, time = 5, newdata = data_st0)
+```
 
 
 ```{r}
@@ -276,11 +314,61 @@ st0 <- survfit(fgfit, newdata = data_st0, se.fit = FALSE)
 
 ```{r}
 library(tidycmprsk)
+dat <- imp.datosA |> 
+  select(time, eventdf, age_c, male_c, eGFR_c, log_acr_c)
+
 crr_mod <- tidycmprsk::crr(Surv(time, eventdf) ~ 
-                             age_c + male_c + eGFR_c + log_acr_c, imp.datosA)
+                               age_c + male_c + eGFR_c + log_acr_c, 
+                           data = dat)
+```
+
+
+```{r}
+data_st0 <- data.frame(time = c(2, 2), 
+                       eventdf = c(0, 1),
+                       age_c = c(0, 0), 
+                       male_c = c(0, 0), 
+                       eGFR_c = c(0, 0), 
+                       log_acr_c = c(0, 0)) |> 
+  mutate(eventdf = as.factor(eventdf))
+data_st0 
+```
+
+```{r}
+head(dat)
 ```
 ```{r}
+dat2 <- dat |> 
+  add_row(time = 2, eventdf = factor("0", levels = c("0", "1")), 
+          age_c = 0, male_c = 0, eGFR_c = 0, log_acr_c = 0, 
+          .before = 1) |> 
+  add_row(time = 5, eventdf = factor("0", levels = c("0", "1")), 
+          age_c = 0, male_c = 0, eGFR_c = 0, log_acr_c = 0, 
+          .before = 1) |> 
+  slice(1:3)
+dat2
+```
+
+
+```{r}
+predict(crr_mod, times = 2, newdata = dat2)
+```
+
+
+```{r}
 crr_mod
+```
+
+```{r}
+data_st0 <- data.frame(time = 5, 
+                       eventdf = factor(0),
+                       age_c = 0, 
+                       male_c = 0, 
+                       eGFR_c = 0, 
+                       log_acr_c = 0)
+
+
+predict(crr_mod, times = 5, newdata = data_st0)
 ```
 
 
