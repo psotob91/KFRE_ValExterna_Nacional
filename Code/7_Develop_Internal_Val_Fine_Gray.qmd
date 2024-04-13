@@ -227,6 +227,11 @@ source(here("Code", "source", "process_imp_cal_plot2.R"))
 source(here("Code", "source", "print_equation.R")) 
 ```
 
+```{r}
+library(QHScrnomo)
+```
+
+
 
 ```{r}
 primary_event <- 1 # primary event is 1 (breast cancer recurrence)
