@@ -242,9 +242,9 @@ tab_res_5y <- res_pool2 |>
                                             c("Average predicted risk", 
                                               "Overall observerd risk", 
                                               "OE difference"), 100 * .x, .x)), 
+    across(c(estimate, ll, ul), ~ round(.x, 2)), 
     measures = case_when(term == "Average predicted risk" ~ str_glue("{estimate}%"), 
                        term %in% c("Overall observerd risk", "OE difference") ~ str_glue("{estimate}% ({ll}% to {ul}%)"),
-    across(c(estimate, ll, ul), ~ round(.x, 2)), 
                        TRUE ~ str_glue("{estimate} ({ll} to {ul})")
                        )
     ) |> 
@@ -354,6 +354,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_2y.rds"))
 
+cal_mod2y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_mod2y_pool <- cal_mod2y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "2 years") |> 
+  select(year, everything())
+
+rio::export(cal_mod2y_imp, here("Data", "Tidy", "cal_Original2y_imp.rds"))
+
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
@@ -442,6 +463,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_5y.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_5y.rds"))
+
+cal_mod5y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_mod5y_pool <- cal_mod5y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "5 years") |> 
+  select(year, everything())
+
+rio::export(cal_mod5y_imp, here("Data", "Tidy", "cal_Original5y_imp.rds"))
 
 # Grafico de calibracion
 ggplot() +
@@ -534,6 +576,36 @@ knitr::include_graphics(here("Figures", "Plot_Calibration_imputed.png"))
 #| fig-cap: "Calibration curves for each group and prediction horizon"
 knitr::include_graphics(here("Figures", "Plot_Calibration_imputed_estabilidad.png"))
 ```
+
+
+### Metricas de calibracion moderada
+
+```{r}
+cal_mod2y_pool |> 
+  bind_rows(cal_mod5y_pool) |> 
+  pivot_longer(cols = ICI:root_square_bias, 
+               names_to = "metrica", 
+               values_to = "modelo") |> 
+  mutate(modelo = round(modelo, 3)) |> 
+  as_grouped_data(groups = "year") |> 
+  flextable::as_flextable(hide_grouplabel = TRUE) |> 
+  autofit() |>  
+  set_header_labels(
+    year = "Time horizon", 
+    metrica = "Performance measure", 
+    modelo = "Original KFRE"
+  ) |> 
+  bold(i = c(1, 7), j = 1) |> 
+  set_caption("Table. Moderate Calibration Metrics") |>  
+  theme_booktabs() |>   
+  bold(bold = TRUE, part = "header") -> table_cal_mod
+
+table_cal_mod %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Imputed_Performance_Moderate_Cal_Modelo_Original.docx"))
+
+table_cal_mod
+```
+
 
 ## Ticket de Reprocubilidad
 

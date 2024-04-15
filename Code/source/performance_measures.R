@@ -110,7 +110,7 @@ performance_measures <- function(data, horizon, primary_event, pred, ...) {
       ), 
       estimate_imp = c(avg_pred, avg_obs, ln_oe_ratio, oe_diff, 
                    summary(fit_cal_int)$mean$estimate, 
-                   summary(fit_cal_slope)$mean["cll_pred", "estimate"], 
+                   1 + summary(fit_cal_slope)$mean["cll_pred", "estimate"], 
                    logit_auc, 
                    score_vdata[["Brier"]][["score"]][["Brier"]][[2]] 
       ), 

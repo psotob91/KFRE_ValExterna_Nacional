@@ -369,7 +369,7 @@ table_perf_final
 rm(list=ls()[! ls() %in% c("imp.datosA", "imp.datosA2", "vdata", 
                            "primary_event", "horizon", 
                            "process_imp_cal_plot", "seed", "n_cores", "kfre_pi", 
-                           "imputs")])
+                           "imputs", "cal_metA", "cal_metB", "cal_metC", "cal_metD")])
 gc()
 ```
 
@@ -444,6 +444,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y_metA.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_2y_metA.rds"))
+
+cal_metA2y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_metA2y_pool <- cal_metA2y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "2 years") |> 
+  select(year, everything())
+
+rio::export(cal_metA2y_imp, here("Data", "Tidy", "cal_metA2y_imp.rds"))
 
 # Grafico de calibracion
 ggplot() +
@@ -536,6 +557,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_5y_metA.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_5y_metA.rds"))
 
+cal_metA5y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_metA5y_pool <- cal_metA5y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "5 years") |> 
+  select(year, everything())
+
+rio::export(cal_metA5y_imp, here("Data", "Tidy", "cal_metA5y_imp.rds"))
+
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
@@ -614,6 +656,13 @@ ggsave(filename = "Plot_Calibration_imputed_estabilidad_metA.png",
        dpi = 600)
 
 gc()
+
+cal_metA2y_pool |> 
+  bind_rows(cal_metA5y_pool) |> 
+  pivot_longer(cols = ICI:root_square_bias, 
+               names_to = "metrica", 
+               values_to = "modelo") |> 
+  mutate(modelo = round(modelo, 3)) -> cal_metA
 ```
 
 ```{r}
@@ -802,7 +851,7 @@ table_perf_final
 rm(list=ls()[! ls() %in% c("imp.datosA","imp.datosA2", "vdata", 
                            "primary_event", "horizon", 
                            "process_imp_cal_plot", "seed", "n_cores", "kfre_pi", 
-                           "imputs")])
+                           "imputs", "cal_metA", "cal_metB", "cal_metC", "cal_metD")])
 gc()
 ```
 
@@ -877,6 +926,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y_metB.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_2y_metB.rds"))
+
+cal_metB2y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_metB2y_pool <- cal_metB2y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "2 years") |> 
+  select(year, everything())
+
+rio::export(cal_metB2y_imp, here("Data", "Tidy", "cal_metB2y_imp.rds"))
 
 # Grafico de calibracion
 ggplot() +
@@ -969,6 +1039,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_5y_metB.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_5y_metB.rds"))
 
+cal_metB5y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_metB5y_pool <- cal_metB5y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "5 years") |> 
+  select(year, everything())
+
+rio::export(cal_metB5y_imp, here("Data", "Tidy", "cal_metB5y_imp.rds"))
+
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
@@ -1047,6 +1138,13 @@ ggsave(filename = "Plot_Calibration_imputed_estabilidad_metB.png",
        dpi = 600)
 
 gc()
+
+cal_metB2y_pool |> 
+  bind_rows(cal_metB5y_pool) |> 
+  pivot_longer(cols = ICI:root_square_bias, 
+               names_to = "metrica", 
+               values_to = "modelo") |> 
+  mutate(modelo = round(modelo, 3)) -> cal_metB
 ```
 
 ```{r}
@@ -1236,7 +1334,7 @@ table_perf_final
 rm(list=ls()[! ls() %in% c("imp.datosA", "imp.datosA2", "vdata", 
                            "primary_event", "horizon", 
                            "process_imp_cal_plot", "seed", "n_cores", "kfre_pi", 
-                           "imputs")])
+                           "imputs", "cal_metA", "cal_metB", "cal_metC", "cal_metD")])
 gc()
 ```
 
@@ -1311,6 +1409,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y_metC.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_2y_metC.rds"))
+
+cal_metC2y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_metC2y_pool <- cal_metC2y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "2 years") |> 
+  select(year, everything())
+
+rio::export(cal_metC2y_imp, here("Data", "Tidy", "cal_metC2y_imp.rds"))
 
 # Grafico de calibracion
 ggplot() +
@@ -1403,6 +1522,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_5y_metC.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_5y_metC.rds"))
 
+cal_metC5y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_metC5y_pool <- cal_metC5y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "5 years") |> 
+  select(year, everything())
+
+rio::export(cal_metC5y_imp, here("Data", "Tidy", "cal_metC5y_imp.rds"))
+
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
@@ -1481,6 +1621,13 @@ ggsave(filename = "Plot_Calibration_imputed_estabilidad_metC.png",
        dpi = 600)
 
 gc()
+
+cal_metC2y_pool |> 
+  bind_rows(cal_metC5y_pool) |> 
+  pivot_longer(cols = ICI:root_square_bias, 
+               names_to = "metrica", 
+               values_to = "modelo") |> 
+  mutate(modelo = round(modelo, 3)) -> cal_metC
 ```
 
 ```{r}
@@ -1670,7 +1817,7 @@ table_perf_final
 rm(list=ls()[! ls() %in% c("imp.datosA", "imp.datosA2", "vdata", 
                            "primary_event", "horizon", 
                            "process_imp_cal_plot", "seed", "n_cores", "kfre_pi", 
-                           "imputs")])
+                           "imputs", "cal_metA", "cal_metB", "cal_metC", "cal_metD")])
 gc()
 ```
 
@@ -1746,6 +1893,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_2y_metD.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_2y_metD.rds"))
+
+cal_metD2y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_metD2y_pool <- cal_metD2y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "2 years") |> 
+  select(year, everything())
+
+rio::export(cal_metD2y_imp, here("Data", "Tidy", "cal_metD2y_imp.rds"))
 
 # Grafico de calibracion
 ggplot() +
@@ -1838,6 +2006,27 @@ subdist_df_imp_fix <- subdist_df_imp |>
 rio::export(subdist_df_imp, here("Data", "Tidy", "subdist_df_imput_3a4_5y_metD.rds"))
 rio::export(subdist_df_stack, here("Data", "Tidy", "subdist_df_deciles_3a4_5y_metD.rds"))
 
+cal_metD5y_imp <- subdist_df_imp_obs |> 
+  select(.imp, risk, obs) |> 
+  summarise(ICI = mean(abs(risk - obs)), 
+            E50 = quantile(abs(risk - obs), c(0.5)), 
+            E90 = quantile(abs(risk - obs), c(0.9)), 
+            Emax = max(abs(risk - obs)), 
+            root_square_bias = sqrt(mean((risk - obs) ^ 2)), 
+            .by = ".imp"
+  ) 
+
+cal_metD5y_pool <- cal_metD5y_imp |> 
+  summarise(ICI = mean(ICI), 
+            E50 = mean(E50), 
+            E90 = mean(E90), 
+            Emax = mean(Emax), 
+            root_square_bias = mean(root_square_bias)) |> 
+  mutate(year = "5 years") |> 
+  select(year, everything())
+
+rio::export(cal_metD5y_imp, here("Data", "Tidy", "cal_metD5y_imp.rds"))
+
 # Grafico de calibracion
 ggplot() +
   geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
@@ -1916,6 +2105,13 @@ ggsave(filename = "Plot_Calibration_imputed_estabilidad_metD.png",
        dpi = 600)
 
 gc()
+
+cal_metD2y_pool |> 
+  bind_rows(cal_metD5y_pool) |> 
+  pivot_longer(cols = ICI:root_square_bias, 
+               names_to = "metrica", 
+               values_to = "modelo") |> 
+  mutate(modelo = round(modelo, 3)) -> cal_metD
 ```
 
 ```{r}
@@ -1933,6 +2129,8 @@ knitr::include_graphics(here("Figures", "Plot_Calibration_imputed_estabilidad_me
 
 
 ## Comparacion de modelos
+
+### Graficos
 
 ```{r}
 plot_cal_metA <- import(here("Data", "Tidy", "plot_cal_metA.rds"))
@@ -1958,6 +2156,50 @@ ggsave(filename = "Plot_Compare_Methods.png",
 ```{r}
 #| echo: false
 knitr::include_graphics(here("Figures", "Plot_Compare_Methods.png"))
+```
+
+### Metricas de calibacion
+
+
+```{r}
+cal_mets <- cal_metA |> 
+  rename(modeloA = modelo) |> 
+  left_join(cal_metB |> rename(modeloB = modelo), 
+            by = c("year", "metrica")) |> 
+  left_join(cal_metC |> rename(modeloC = modelo), 
+            by = c("year", "metrica")) |> 
+  left_join(cal_metD |> rename(modeloD = modelo), 
+            by = c("year", "metrica")) 
+
+cal_mets
+```
+
+
+```{r}
+cal_mets |> 
+  mutate(across(starts_with("modelo"), ~ round(100 * .x, 4)),
+         metrica = if_else(metrica == "root_square_bias", 
+                           "Root square bias", metrica)) |> 
+  as_grouped_data(groups = "year") |> 
+  flextable::as_flextable(hide_grouplabel = TRUE) |> 
+  autofit() |>  
+  set_header_labels(
+    year = "Time horizon", 
+    metrica = "Performance measure", 
+    modeloA = "Method A\n(%)", 
+    modeloB = "Method B\n(%)", 
+    modeloC = "Method C\n(%)", 
+    modeloD = "Method D\n(%)" 
+  ) |> 
+  bold(i = c(1, 7), j = 1) |> 
+  set_caption("Table. Moderate Calibration Metrics") |>  
+  theme_booktabs() |>   
+  bold(bold = TRUE, part = "header") -> table_cal_mod
+
+table_cal_mod %>% 
+  flextable::save_as_docx(path = here("Tables/Table_Imputed_Performance_Moderate_Cal_Methods.docx"))
+
+table_cal_mod
 ```
 
 

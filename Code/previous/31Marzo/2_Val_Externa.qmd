@@ -83,21 +83,74 @@ if (!require("smplot2")) devtools::install_github('smin95/smplot2', force = TRUE
 
 ```{r}
 # Import data
-data <- readRDS(here::here("Data", "Tidy", "datos_total_integrados.rds")) |> 
-  filter(age >= 18, time > 0) |> 
-  drop_na(sex, age, crea, acr)
+data_impA <- readRDS(here::here("Data", "Tidy", "data_impA.rds")) 
+data <- complete(data_impA, action = "long", include = TRUE) |> 
+  filter(.imp == 1) |> 
+  mutate(id = .id)
+rm(data_impA)
 
+
+```
+
+
+## Cargar funciones
+
+```{r}
+source(here("Code", "source", "kfre_pi.R"))
+source(here("Code", "source", "kfre_pr.R"))
+source(here("Code", "source", "oe_ratio.R"))
+source(here("Code", "source", "calibration_intercept.R"))
+source(here("Code", "source", "calibration_slope.R"))
+source(here("Code", "source", "auc.R"))
+source(here("Code", "source", "auc_brier_boot.R"))
+source(here("Code", "source", "validate.mids.R"))
+source(here("Code", "source", "pool.validate.mids.R"))
+source(here("Code", "source", "pool.auc.mids.R"))
+source(here("Code", "source", "process_imp_cal_plot.R"))
+source(here("Code", "source", "predict.mira.R"))
+source(here("Code", "source", "performance_measures.R"))
+source(here("Code", "source", "tidy_performance_stack.R"))    
+source(here("Code", "source", "tidy_pool.R")) 
+source(here("Code", "source", "process_imp_cal_plot2.R")) 
+```
+
+
+## Configurar cores para parallel processing
+
+```{r}
+n_cores <- detectCores()
+
+# Evaluate futures in parallel - max of two workers to avoid hogging resources
+future::plan("multisession", workers = n_cores)
+```
+
+## Semilla
+
+```{r}
+seed <- 2014
+```
+
+## Pre-procesar
+
+```{r}
+data <- data |> 
+  mutate(risk2y = kfre_pr(imp.datosA, 2),
+         risk5y = kfre_pr(imp.datosA, 5), 
+         eventdf = factor(eventd))
+```
+```{r}
 # Subset patients with CKD Stages 3a-3b-4
-data %>%  
-  filter(ckd_stage == "Stages 3-4") -> dataA
+data -> dataA
 
 # Subset patients with CKD Stages 3b-4
 data %>%  
   filter(ckd_stage2 == "Stages 3b-4") -> dataB
 
-rio::export(dataA, here("Data", "Tidy", "datos_kfre_3a_4.dta"))
-rio::export(dataA, here("Data", "Tidy", "datos_kfre_3a_4.xlsx"))
+# Import data
+
+gc()
 ```
+
 
 ### Table 1
 
@@ -368,13 +421,10 @@ knitr::include_graphics(here("Figures", "Plot_CIF.png"))
 
 # Seleccion del grupo: Stages 3-4----
 vdata <- dataA %>% 
-  select(id, risk2y, risk5y, time5y, eventd5y, time, eventd) %>%  
+  select(id, risk2y, risk5y, time5y, eventd5y, eventd5ylab, time, eventd) %>%  
   drop_na() %>%  
-  mutate(status = factor(eventd5y, 
-                         levels = c(0, 1, 2), 
-                         labels = c("Alive w/o Kidney Failure", 
-                                    "Kidney Failure", 
-                                    "Death w/o Kidney Failure")))
+  mutate(status = eventd5ylab)
+
 primary_event <- 1
 
 # A 2 años----
